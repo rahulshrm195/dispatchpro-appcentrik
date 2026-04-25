@@ -1461,21 +1461,36 @@ window.saveTenantUser = async (tenantId, tenantName) => {
 };
 
 window.viewTenantUsers = async (tenantId, tenantName) => {
-  const q = query(collection(db, 'users'), where('tenantId','==',tenantId));
-  const snap = await getDocs(q);
-  const users = snap.docs.map(d=>({ uid:d.id, ...d.data() }));
+  // Show modal immediately with loading state
   document.getElementById('detailContent').innerHTML = `
     <div class="modal-title">Users — ${tenantName}</div>
-    ${users.map(u=>`
-      <div class="user-card">
-        <div class="user-info">
-          <div class="user-avatar">${initials(u.name)}</div>
-          <div><div class="user-name">${u.name}</div><div class="user-meta">${u.email}</div></div>
-        </div>
-        ${getRoleBadge(u.role)}
-      </div>`).join('')}
-    <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="closeDetail()">Close</button>`;
+    <div style="text-align:center;padding:32px 0;">
+      <div class="load-spinner" style="border-color:rgba(15,23,42,0.15);border-top-color:var(--accent);margin:0 auto 12px;"></div>
+      <div style="font-size:13px;color:var(--text2);">Loading users...</div>
+    </div>`;
   document.getElementById('detailModal').classList.add('open');
+
+  try {
+    const q = query(collection(db, 'users'), where('tenantId','==',tenantId));
+    const snap = await getDocs(q);
+    const users = snap.docs.map(d=>({ uid:d.id, ...d.data() }));
+    document.getElementById('detailContent').innerHTML = `
+      <div class="modal-title">Users — ${tenantName}</div>
+      ${users.length ? users.map(u=>`
+        <div class="user-card">
+          <div class="user-info">
+            <div class="user-avatar">${initials(u.name)}</div>
+            <div><div class="user-name">${u.name}</div><div class="user-meta">${u.email}</div></div>
+          </div>
+          ${getRoleBadge(u.role)}
+        </div>`).join('') : `<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">No users yet</div></div>`}
+      <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="closeDetail()">Close</button>`;
+  } catch(e) {
+    document.getElementById('detailContent').innerHTML = `
+      <div class="modal-title">Users — ${tenantName}</div>
+      <div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">Failed to load users</div><div class="empty-sub">Check your connection</div></div>
+      <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="closeDetail()">Close</button>`;
+  }
 };
 
 
