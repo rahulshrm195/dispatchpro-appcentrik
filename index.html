@@ -571,7 +571,6 @@ function setupApp() {
       { icon:'📋', label:'Orders', view: renderAdminOrders },
       { icon:'👥', label:'Customers', view: renderCustomers },
       { icon:'👤', label:'Users', view: renderUsers },
-      { icon:'🆕', label:"What's New", view: renderWhatsNew }
     ];
     subscribeOrders(); subscribeCustomers(); loadUsers();
   } else if (role === 'office') {
@@ -1157,11 +1156,21 @@ function buildItemRow(i) {
   </div>`;
 }
 
+function syncItemsFromDOM() {
+  newOrderItems.forEach((_, i) => {
+    const lamEl = document.getElementById('item-lam-' + i);
+    const qtyEl = document.getElementById('item-qty-' + i);
+    if (lamEl) newOrderItems[i].laminate = lamEl.value;
+    if (qtyEl) newOrderItems[i].qty = qtyEl.value;
+  });
+}
 window.addItem = () => {
+  syncItemsFromDOM();
   newOrderItems.push({ laminate:'', qty:'' });
   document.getElementById('itemsList').innerHTML = newOrderItems.map((_,i)=>buildItemRow(i)).join('');
 };
 window.removeItem = (i) => {
+  syncItemsFromDOM();
   newOrderItems.splice(i,1);
   document.getElementById('itemsList').innerHTML = newOrderItems.map((_,j)=>buildItemRow(j)).join('');
 };
