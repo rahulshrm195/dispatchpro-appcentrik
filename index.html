@@ -354,9 +354,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.0';
+const APP_VERSION = 'v1.0.1';
 const APP_BUILD   = '25 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.1',
+    date: '25 Apr 2026',
+    tag: 'Bug Fix',
+    changes: [
+      "What's New tab restricted to Super Admin only",
+      'Fixed laminate items blanking out when adding a new row',
+    ]
+  },
   {
     version: 'v1.0.0',
     date: '25 Apr 2026',
