@@ -340,6 +340,17 @@ const app = initializeApp({
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// Secondary app for creating users without disrupting current session
+const app2 = initializeApp({
+  apiKey: "AIzaSyAQcvVkzFYs0ADN9K5tWDVAJfkdRE2Q_xA",
+  authDomain: "dispatchpro-appcentrik.firebaseapp.com",
+  projectId: "dispatchpro-appcentrik",
+  storageBucket: "dispatchpro-appcentrik.firebasestorage.app",
+  messagingSenderId: "482641616008",
+  appId: "1:482641616008:web:1c15152612ed58928a933d"
+}, 'secondary');
+const auth2 = getAuth(app2);
+
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let currentUser = null;
 let currentProfile = null;
@@ -1191,11 +1202,11 @@ window.saveNewUser = async () => {
   try {
     const tenantSnap = await getDoc(doc(db, 'tenants', currentTenantId));
     const tenantName = tenantSnap.data()?.name || '';
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    const cred = await createUserWithEmailAndPassword(auth2, email, pass);
     await setDoc(doc(db, 'users', cred.user.uid), {
       name, email, role, tenantId: currentTenantId, tenantName, createdAt: serverTimestamp()
     });
-    await signInWithEmailAndPassword(auth, currentUser.email, '');
+    await signOut(auth2);
     closeForm();
     showToast(`✓ User ${name} created`);
     await loadUsers();
@@ -1309,10 +1320,11 @@ window.saveNewTenant = async () => {
   try {
     const tenantId = name.toLowerCase().replace(/[^a-z0-9]/g,'-').replace(/-+/g,'-');
     await setDoc(doc(db, 'tenants', tenantId), { name, city, active:true, createdAt:serverTimestamp() });
-    const cred = await createUserWithEmailAndPassword(auth, aemail, apass);
+    const cred = await createUserWithEmailAndPassword(auth2, aemail, apass);
     await setDoc(doc(db, 'users', cred.user.uid), {
       name:aname, email:aemail, role:'admin', tenantId, tenantName:name, createdAt:serverTimestamp()
     });
+    await signOut(auth2);
     closeForm();
     showToast(`✓ Tenant "${name}" created!`);
     await loadTenants();
@@ -1355,8 +1367,9 @@ window.saveTenantUser = async (tenantId, tenantName) => {
   const btn = document.getElementById('saveTUBtn');
   btn.disabled=true; btn.textContent='Creating...';
   try {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    const cred = await createUserWithEmailAndPassword(auth2, email, pass);
     await setDoc(doc(db, 'users', cred.user.uid), { name, email, role, tenantId, tenantName, createdAt:serverTimestamp() });
+    await signOut(auth2);
     closeForm();
     showToast(`✓ User ${name} added to ${tenantName}`);
   } catch(e) {
