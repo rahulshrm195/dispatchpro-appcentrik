@@ -259,6 +259,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
   <div class="load-title">DispatchPro</div>
   <div class="load-sub">by AppCentrik</div>
+  <div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,0.35);font-family:'DM Mono',monospace;" id="splashVer"></div>
   <div class="load-spinner"></div>
 </div>
 
@@ -271,6 +272,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </div>
       <div class="login-title">DispatchPro</div>
       <div class="login-sub">Sign in to your workspace</div>
+      <div style="margin-top:6px;font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;" id="loginVer"></div>
     </div>
     <div id="loginErr" class="err-msg"></div>
     <div class="form-group">
@@ -282,7 +284,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <input class="form-input" id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password"/>
     </div>
     <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In</button>
-    <div style="text-align:center;margin-top:16px;font-size:11px;color:var(--text3);">DispatchPro · by AppCentrik</div>
+    <div style="text-align:center;margin-top:16px;font-size:11px;color:var(--text3);">DispatchPro · by AppCentrik · <span id="footerVer"></span></div>
   </div>
 </div>
 
@@ -290,7 +292,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="screen" id="appScreen">
   <div class="topbar">
     <div>
-      <div class="topbar-logo">DispatchPro</div>
+      <div class="topbar-logo">DispatchPro <span style="font-size:9px;opacity:0.45;font-family:'DM Mono',monospace;" id="topbarVer"></span></div>
       <div class="topbar-role" id="topbarRole"></div>
     </div>
     <div class="topbar-right">
@@ -350,6 +352,33 @@ const app2 = initializeApp({
   appId: "1:482641616008:web:1c15152612ed58928a933d"
 }, 'secondary');
 const auth2 = getAuth(app2);
+
+// ─── VERSION ─────────────────────────────────────────────────────────────────
+const APP_VERSION = 'v1.0.0';
+const APP_BUILD   = '25 Apr 2026';
+const CHANGELOG = [
+  {
+    version: 'v1.0.0',
+    date: '25 Apr 2026',
+    tag: 'Initial Release',
+    changes: [
+      'Multi-tenant SaaS architecture',
+      'Role-based login — Super Admin, Admin, Office, Manager, Floor',
+      'Complete order lifecycle — New → Accepted → Prep → Ready → Dispatched',
+      'Multi-item orders with sheet quantity tracking',
+      'Rolls packed entry by floor team',
+      'Vehicle number capture at dispatch',
+      'Real-time Firestore sync across all devices',
+      'FY-based auto order ID (DP-2526-XXXX)',
+      'Customer management with order history',
+      'Aging indicator for stuck ready orders',
+      'Admin dashboard — pipeline, stats, source split',
+      'Super Admin panel — tenant and user management',
+      'Secondary Firebase auth — no session disruption on user creation',
+      'PWA — installable on Android and iOS',
+    ]
+  }
+];
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let currentUser = null;
@@ -493,6 +522,37 @@ async function doLogout() {
   await signOut(auth);
 }
 
+
+// ─── WHATS NEW VIEW ───────────────────────────────────────────────────────────
+function renderWhatsNew() {
+  return `
+    <div class="page-header">
+      <div><div class="page-title">What's New</div><div class="page-sub">DispatchPro · by AppCentrik</div></div>
+      <span class="fy-label">${APP_VERSION}</span>
+    </div>
+    <div class="section-pad">
+      ${CHANGELOG.map((log, idx) => `
+        <div style="margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:var(--text);">${log.version}</span>
+            ${idx === 0 ? `<span style="font-size:10px;background:var(--green-bg);color:var(--green);padding:2px 8px;border-radius:20px;font-weight:500;">Latest</span>` : ''}
+            <span style="font-size:11px;color:var(--text3);margin-left:auto;">${log.date}</span>
+          </div>
+          ${log.tag ? `<div style="font-size:12px;color:var(--blue);background:var(--blue-bg);padding:4px 10px;border-radius:6px;display:inline-block;margin-bottom:10px;">${log.tag}</div>` : ''}
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+            ${log.changes.map((c, i) => `
+              <div style="padding:9px 14px;font-size:13px;color:var(--text);display:flex;gap:8px;align-items:flex-start;${i < log.changes.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}">
+                <span style="color:var(--green);flex-shrink:0;margin-top:1px;">✓</span>
+                <span>${c}</span>
+              </div>`).join('')}
+          </div>
+        </div>`).join('')}
+      <div style="text-align:center;padding:20px 0 8px;font-size:11px;color:var(--text3);">
+        DispatchPro · AppCentrik · Built with ❤️ in Nashik
+      </div>
+    </div>`;
+}
+
 // ─── APP SETUP ────────────────────────────────────────────────────────────────
 function setupApp() {
   const role = currentProfile.role;
@@ -501,7 +561,8 @@ function setupApp() {
   if (role === 'superadmin') {
     tabs = [
       { icon:'🏢', label:'Tenants', view: renderSuperTenants },
-      { icon:'➕', label:'New Tenant', action: openNewTenant }
+      { icon:'➕', label:'New Tenant', action: openNewTenant },
+      { icon:'📋', label:"What's New", view: renderWhatsNew }
     ];
     loadTenants();
   } else if (role === 'admin') {
@@ -509,7 +570,8 @@ function setupApp() {
       { icon:'📊', label:'Dashboard', view: renderAdminDash },
       { icon:'📋', label:'Orders', view: renderAdminOrders },
       { icon:'👥', label:'Customers', view: renderCustomers },
-      { icon:'👤', label:'Users', view: renderUsers }
+      { icon:'👤', label:'Users', view: renderUsers },
+      { icon:'🆕', label:"What's New", view: renderWhatsNew }
     ];
     subscribeOrders(); subscribeCustomers(); loadUsers();
   } else if (role === 'office') {
@@ -912,9 +974,11 @@ function renderSuperTenants() {
             </div>
             <span class="tenant-status ${t.active!==false?'tenant-active':'tenant-inactive'}">${t.active!==false?'Active':'Inactive'}</span>
           </div>
-          <div style="margin-top:10px;display:flex;gap:8px;">
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn-outline" style="flex:1;padding:9px;font-size:12px;" onclick="openAddTenantUser('${t.id}','${t.name}')">+ Add User</button>
             <button class="btn-outline" style="flex:1;padding:9px;font-size:12px;" onclick="viewTenantUsers('${t.id}','${t.name}')">View Users</button>
+            <button class="btn-outline" style="flex:1;padding:9px;font-size:12px;" onclick="toggleTenant('${t.id}',${t.active!==false})">${t.active!==false?'Deactivate':'Activate'}</button>
+            <button style="flex:1;padding:9px;font-size:12px;background:var(--red-bg);color:var(--red);border:1px solid #fecaca;border-radius:var(--radius);cursor:pointer;" onclick="confirmDeleteTenant('${t.id}','${t.name}')">🗑 Delete</button>
           </div>
         </div>`).join('')
         : `<div class="empty-state"><div class="empty-icon">🏢</div><div class="empty-text">No tenants yet</div><div class="empty-sub">Create your first client</div></div>`}
@@ -1395,6 +1459,70 @@ window.viewTenantUsers = async (tenantId, tenantName) => {
     <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="closeDetail()">Close</button>`;
   document.getElementById('detailModal').classList.add('open');
 };
+
+
+// ─── TENANT MANAGEMENT ───────────────────────────────────────────────────────
+window.toggleTenant = async (tenantId, currentlyActive) => {
+  try {
+    await updateDoc(doc(db, 'tenants', tenantId), { active: !currentlyActive });
+    showToast(currentlyActive ? 'Tenant deactivated' : 'Tenant activated');
+    await loadTenants();
+    renderTab(0);
+  } catch(e) {
+    showToast('Failed to update tenant');
+  }
+};
+
+window.confirmDeleteTenant = (tenantId, tenantName) => {
+  document.getElementById('detailContent').innerHTML = `
+    <div class="modal-title" style="color:var(--red);">Delete Tenant</div>
+    <div style="background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);padding:14px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:500;color:var(--red);margin-bottom:6px;">⚠ This cannot be undone</div>
+      <div style="font-size:13px;color:var(--red);">This will permanently delete <strong>${tenantName}</strong> and all their user records from Firestore. Firebase Auth accounts will remain but won't be able to login.</div>
+    </div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Are you sure you want to delete <strong>${tenantName}</strong>?</div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeDetail()">Cancel</button>
+      <button style="flex:2;padding:12px;background:var(--red);border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:pointer;" id="confirmDelBtn" onclick="deleteTenant('${tenantId}','${tenantName}')">Yes, Delete Tenant</button>
+    </div>`;
+  document.getElementById('detailModal').classList.add('open');
+};
+
+window.deleteTenant = async (tenantId, tenantName) => {
+  const btn = document.getElementById('confirmDelBtn');
+  btn.disabled = true; btn.textContent = 'Deleting...';
+  try {
+    // Delete all user docs for this tenant
+    const usersSnap = await getDocs(query(collection(db, 'users'), where('tenantId','==',tenantId)));
+    const batch = writeBatch(db);
+    usersSnap.docs.forEach(d => batch.delete(d.ref));
+    // Delete tenant doc
+    batch.delete(doc(db, 'tenants', tenantId));
+    await batch.commit();
+    closeDetail();
+    showToast(`✓ Tenant "${tenantName}" deleted`);
+    await loadTenants();
+    renderTab(0);
+  } catch(e) {
+    showToast('Failed to delete tenant: ' + e.message);
+    btn.disabled = false; btn.textContent = 'Yes, Delete Tenant';
+  }
+};
+
+// ─── SET VERSION STRINGS ─────────────────────────────────────────────────────
+function setVersionStrings() {
+  const els = {
+    splashVer: APP_VERSION,
+    loginVer: APP_VERSION,
+    footerVer: APP_VERSION,
+    topbarVer: APP_VERSION
+  };
+  Object.entries(els).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  });
+}
+setVersionStrings();
 
 // close modals on overlay click
 document.getElementById('detailModal').addEventListener('click', e => { if(e.target===document.getElementById('detailModal')) closeDetail(); });
