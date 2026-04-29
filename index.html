@@ -354,9 +354,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.3';
-const APP_BUILD   = '29 Apr 2026';
+const APP_VERSION = 'v1.0.4';
+const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.4',
+    date: '30 Apr 2026',
+    tag: 'Security',
+    changes: [
+      'Deactivate / Activate user — admin can block ex-employees instantly',
+      'Deactivated users are rejected at login even if Firebase Auth is active',
+      'Deactivated users shown greyed out with status label in Users tab',
+      'Cannot deactivate your own account',
+    ]
+  },
   {
     version: 'v1.0.3',
     date: '29 Apr 2026',
@@ -491,6 +502,14 @@ onAuthStateChanged(auth, async (user) => {
     const snap = await getDoc(doc(db, 'users', user.uid));
     if (!snap.exists()) { await signOut(auth); showLogin(); return; }
     currentProfile = snap.data();
+    // Block disabled users immediately
+    if (currentProfile.disabled === true) {
+      await signOut(auth);
+      hideLoading();
+      showLogin();
+      setTimeout(() => showErr('loginErr', '⚠ Your account has been deactivated. Contact your admin.'), 400);
+      return;
+    }
     currentTenantId = currentProfile.tenantId || null;
     hideLoading();
     showApp();
@@ -676,6 +695,19 @@ async function loadUsers() {
   usersCache = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
   refreshCurrentTab();
 }
+
+window.toggleUserStatus = async (uid, name, currentlyDisabled) => {
+  const action = currentlyDisabled ? 'activate' : 'deactivate';
+  if (!confirm(`Are you sure you want to ${action} ${name}?`)) return;
+  try {
+    await updateDoc(doc(db, 'users', uid), { disabled: !currentlyDisabled });
+    showToast(`${currentlyDisabled ? '✓ Activated' : '⚠ Deactivated'} — ${name}`);
+    await loadUsers();
+    renderTab(currentTab);
+  } catch(e) {
+    showToast('Failed to update user status');
+  }
+};
 
 async function loadTenants() {
   const snap = await getDocs(collection(db, 'tenants'));
@@ -940,17 +972,27 @@ function renderUsers() {
       <button class="btn-outline" style="padding:7px 12px;font-size:12px;" onclick="openNewUser()">+ Add User</button>
     </div>
     <div class="section-pad">
-      ${usersCache.length ? usersCache.map(u=>`
-        <div class="user-card">
+      ${usersCache.length ? usersCache.map(u=>{
+        const isMe = u.uid === currentUser.uid;
+        const isDisabled = u.disabled === true;
+        return `
+        <div class="user-card" style="${isDisabled?'opacity:0.5;':''}">
           <div class="user-info">
-            <div class="user-avatar">${initials(u.name)}</div>
+            <div class="user-avatar" style="${isDisabled?'background:var(--gray);':''}">${initials(u.name)}</div>
             <div>
-              <div class="user-name">${u.name}</div>
+              <div class="user-name">${u.name} ${isDisabled?'<span style="font-size:10px;color:var(--red);">(Deactivated)</span>':''}</div>
               <div class="user-meta">${u.email}</div>
             </div>
           </div>
-          ${getRoleBadge(u.role)}
-        </div>`).join('')
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+            ${getRoleBadge(u.role)}
+            ${!isMe ? `<button onclick="toggleUserStatus('${u.uid}','${u.name}',${isDisabled})"
+              style="font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid ${isDisabled?'var(--green)':'var(--red)'};
+              background:${isDisabled?'var(--green-bg)':'var(--red-bg)'};color:${isDisabled?'var(--green)':'var(--red)'};cursor:pointer;">
+              ${isDisabled?'Activate':'Deactivate'}
+            </button>` : '<span style="font-size:10px;color:var(--text3);">You</span>'}
+          </div>
+        </div>`}).join('')
         : `<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">No users yet</div><div class="empty-sub">Add your team members</div></div>`}
     </div>`;
 }
