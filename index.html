@@ -355,8 +355,18 @@ const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
 const APP_VERSION = 'v1.0.1';
-const APP_BUILD   = '25 Apr 2026';
+const APP_BUILD   = '29 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.3',
+    date: '29 Apr 2026',
+    tag: 'Data Integrity',
+    changes: [
+      'Duplicate phone number blocked — same mobile cannot be linked to two customers',
+      'Smart error message shows which existing customer owns that number',
+      'Phone check applies in both standalone customer form and inline new order form',
+    ]
+  },
   {
     version: 'v1.0.1',
     date: '25 Apr 2026',
@@ -1165,6 +1175,15 @@ function buildItemRow(i) {
   </div>`;
 }
 
+async function isPhoneTaken(phone) {
+  // First check cache (instant)
+  if (customersCache.find(c => c.phone === phone)) return true;
+  // Then verify with Firestore (in case cache is stale)
+  const q = query(collection(db, 'tenants', currentTenantId, 'customers'), where('phone', '==', phone));
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
 function syncItemsFromDOM() {
   newOrderItems.forEach((_, i) => {
     const lamEl = document.getElementById('item-lam-' + i);
@@ -1194,7 +1213,13 @@ window.submitNewOrder = async () => {
     const cname = document.getElementById('nof-cname').value.trim();
     const cphone = document.getElementById('nof-cphone').value.trim();
     if (!cname || !cphone) { showErr('orderErr','Enter customer name and phone'); return; }
-    const cRef = await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name:cname, phone:cphone, createdAt:serverTimestamp() });
+    const taken = await isPhoneTaken(cphone);
+    if (taken) {
+      const existing = customersCache.find(c => c.phone === cphone);
+      showErr('orderErr', `⚠ Phone already linked to "${existing?.name || 'another customer'}". Select them from the list instead.`);
+      return;
+    }
+    await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name:cname, phone:cphone, createdAt:serverTimestamp() });
     customer = { name:cname, phone:cphone };
   } else if (custSel) {
     const c = customersCache.find(x=>x.id===custSel);
@@ -1324,8 +1349,15 @@ window.saveNewCustomer = async () => {
   const phone = document.getElementById('nc-phone').value.trim();
   if (!name||!phone) { showErr('custErr','Fill in all fields'); return; }
   const btn = document.getElementById('saveCustBtn');
-  btn.disabled = true; btn.textContent = 'Saving...';
+  btn.disabled = true; btn.textContent = 'Checking...';
   try {
+    const taken = await isPhoneTaken(phone);
+    if (taken) {
+      const existing = customersCache.find(c => c.phone === phone);
+      showErr('custErr', `⚠ Phone already linked to "${existing?.name || 'another customer'}". Each customer must have a unique number.`);
+      btn.disabled = false; btn.textContent = 'Save Customer';
+      return;
+    }
     await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name, phone, createdAt: serverTimestamp() });
     closeForm();
     showToast('✓ Customer added');
