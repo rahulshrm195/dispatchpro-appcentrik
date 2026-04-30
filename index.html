@@ -355,9 +355,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.6';
+const APP_VERSION = 'v1.0.7';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.7',
+    date: '30 Apr 2026',
+    tag: 'Safety',
+    changes: [
+      'Tenant deletion now requires typing the exact business name to confirm',
+      'Delete button stays disabled until name matches exactly — prevents accidental deletion',
+    ]
+  },
   {
     version: 'v1.0.6',
     date: '30 Apr 2026',
@@ -1772,14 +1781,40 @@ window.confirmDeleteTenant = (tenantId, tenantName) => {
     <div class="modal-title" style="color:var(--red);">Delete Tenant</div>
     <div style="background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);padding:14px;margin-bottom:16px;">
       <div style="font-size:14px;font-weight:500;color:var(--red);margin-bottom:6px;">⚠ This cannot be undone</div>
-      <div style="font-size:13px;color:var(--red);">This will permanently delete <strong>${tenantName}</strong> and all their user records from Firestore. Firebase Auth accounts will remain but won't be able to login.</div>
+      <div style="font-size:13px;color:var(--red);">Permanently deletes <strong>${tenantName}</strong> — all orders, customers and user records will be lost forever.</div>
     </div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Are you sure you want to delete <strong>${tenantName}</strong>?</div>
+    <div class="form-group">
+      <label class="form-label" style="color:var(--text);">Type <strong style="font-family:'DM Mono',monospace;color:var(--red);">${tenantName}</strong> to confirm</label>
+      <input class="form-input" id="deleteConfirmInput" placeholder="Type business name exactly..."
+        oninput="checkDeleteConfirm('${tenantName}')"
+        style="border-color:var(--red-bg);"/>
+    </div>
+    <div id="deleteErr" class="err-msg"></div>
     <div class="action-row">
       <button class="btn-outline" onclick="closeDetail()">Cancel</button>
-      <button style="flex:2;padding:12px;background:var(--red);border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:pointer;" id="confirmDelBtn" onclick="deleteTenant('${tenantId}','${tenantName}')">Yes, Delete Tenant</button>
+      <button style="flex:2;padding:12px;background:var(--gray);border:none;border-radius:var(--radius);
+        font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:not-allowed;
+        transition:background 0.2s;" id="confirmDelBtn" disabled
+        onclick="deleteTenant('${tenantId}','${tenantName}')">
+        Delete Tenant
+      </button>
     </div>`;
   document.getElementById('detailModal').classList.add('open');
+};
+
+window.checkDeleteConfirm = (tenantName) => {
+  const input = document.getElementById('deleteConfirmInput').value;
+  const btn = document.getElementById('confirmDelBtn');
+  if (input === tenantName) {
+    btn.disabled = false;
+    btn.style.background = 'var(--red)';
+    btn.style.cursor = 'pointer';
+    hideErr('deleteErr');
+  } else {
+    btn.disabled = true;
+    btn.style.background = 'var(--gray)';
+    btn.style.cursor = 'not-allowed';
+  }
 };
 
 window.deleteTenant = async (tenantId, tenantName) => {
