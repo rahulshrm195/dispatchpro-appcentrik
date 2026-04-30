@@ -123,6 +123,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pill-prep{background:var(--purple-bg);color:var(--purple);}
 .pill-ready{background:var(--green-bg);color:var(--green);}
 .pill-dispatched{background:var(--gray-bg);color:var(--gray);border:1px solid var(--border);}
+.pill-cancelled{background:var(--red-bg);color:var(--red);border:1px solid #fecaca;}
 
 /* STAT CARDS */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -354,9 +355,23 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.4';
+const APP_VERSION = 'v1.0.5';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.5',
+    date: '30 Apr 2026',
+    tag: 'Operations',
+    changes: [
+      'Cancel order — admin can cancel any active order with reason',
+      'Cancellation reasons: customer request, wrong entry, partial pickup, stock unavailable',
+      'Cancelled orders stay in history marked red — full accountability',
+      'Customer search — replaced dropdown with live real-time search bar',
+      'Smart pre-fill — searching a number auto-fills phone, searching text auto-fills name',
+      'Phone number parsing — any format auto-cleaned to standard 10 digits',
+      'Phone validation — rejects invalid numbers before saving',
+    ]
+  },
   {
     version: 'v1.0.4',
     date: '30 Apr 2026',
@@ -435,10 +450,10 @@ function getFY() {
 }
 
 function getStatusLabel(s) {
-  return { new:'New', accepted:'Accepted', prep:'In Prep', ready:'Ready', dispatched:'Dispatched' }[s] || s;
+  return { new:'New', accepted:'Accepted', prep:'In Prep', ready:'Ready', dispatched:'Dispatched', cancelled:'Cancelled' }[s] || s;
 }
 function getStatusClass(s) {
-  return { new:'pill-new', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched' }[s] || '';
+  return { new:'pill-new', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched', cancelled:'pill-cancelled' }[s] || '';
 }
 function timeAgo(ts) {
   if (!ts) return '';
@@ -742,7 +757,7 @@ function orderCardHtml(o, showAge) {
 
 // ─── OFFICE VIEWS ─────────────────────────────────────────────────────────────
 function renderOfficeOrders() {
-  const filters = ['all','new','accepted','prep','ready','dispatched'];
+  const filters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
   const filtered = ordersCache.filter(o =>
     (filterStatus==='all'||o.status===filterStatus) &&
     ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ))
@@ -948,7 +963,7 @@ function renderAdminDash() {
 }
 
 function renderAdminOrders() {
-  const filters = ['all','new','accepted','prep','ready','dispatched'];
+  const filters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
   const filtered = ordersCache.filter(o=>filterStatus==='all'||o.status===filterStatus);
   return `
     <div class="page-header">
@@ -1096,12 +1111,77 @@ window.openDetail = (id) => {
           </div>
         </div>`).join('')}
     </div>
+    ${currentProfile.role === 'admin' && !['dispatched','cancelled'].includes(o.status) ? `
+    <button onclick="openCancelOrder('${o.id}')" style="width:100%;padding:12px;background:var(--red-bg);
+      border:1.5px solid #fecaca;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+      font-size:13px;font-weight:500;color:var(--red);cursor:pointer;margin-bottom:8px;">
+      ✕ Cancel Order
+    </button>` : ''}
     <button class="btn-outline" style="width:100%;" onclick="closeDetail()">Close</button>`;
   document.getElementById('detailModal').classList.add('open');
 };
 
 window.closeDetail = () => document.getElementById('detailModal').classList.remove('open');
 window.closeForm = () => document.getElementById('formModal').classList.remove('open');
+
+window.openCancelOrder = (id) => {
+  const o = ordersCache.find(x=>x.id===id);
+  if (!o) return;
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title" style="color:var(--red);">Cancel Order</div>
+    <div style="background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);padding:12px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:500;color:var(--red);">${o.orderId||o.id}</div>
+      <div style="font-size:13px;color:var(--text);margin-top:2px;">${o.customer?.name||'—'}</div>
+    </div>
+    <div id="cancelErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Reason for cancellation</label>
+      <select class="form-select" id="cancel-reason">
+        <option value="">-- Select reason --</option>
+        <option value="Customer request">Customer request</option>
+        <option value="Wrong order entry">Wrong order entry</option>
+        <option value="Partial pickup — order revised">Partial pickup — order revised</option>
+        <option value="Stock unavailable">Stock unavailable</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Additional notes (optional)</label>
+      <input class="form-input" id="cancel-notes" placeholder="Any details..."/>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Go Back</button>
+      <button style="flex:2;padding:12px;background:var(--red);border:none;border-radius:var(--radius);
+        font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:pointer;"
+        id="confirmCancelBtn" onclick="confirmCancelOrder('${id}')">Confirm Cancellation</button>
+    </div>`;
+  closeDetail();
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.confirmCancelOrder = async (id) => {
+  const reason = document.getElementById('cancel-reason').value;
+  const notes = document.getElementById('cancel-notes').value.trim();
+  if (!reason) { showErr('cancelErr','Please select a reason'); return; }
+  const btn = document.getElementById('confirmCancelBtn');
+  btn.disabled = true; btn.textContent = 'Cancelling...';
+  const o = ordersCache.find(x=>x.id===id);
+  try {
+    await updateDoc(doc(db, 'tenants', currentTenantId, 'orders', id), {
+      status: 'cancelled',
+      cancelledAt: serverTimestamp(),
+      cancelReason: reason,
+      cancelNotes: notes || '',
+      timeline: [...(o?.timeline||[]),
+        { action: `Order cancelled — ${reason}${notes?' ('+notes+')':''}`, by: currentProfile.name, time: new Date() }]
+    });
+    closeForm();
+    showToast('Order cancelled');
+  } catch(e) {
+    showErr('cancelErr','Failed to cancel. Try again.');
+    btn.disabled = false; btn.textContent = 'Confirm Cancellation';
+  }
+};
 
 // ─── ORDER ACTIONS ────────────────────────────────────────────────────────────
 window.acceptOrder = async (id) => {
@@ -1171,20 +1251,32 @@ function buildNewOrderForm() {
     <div id="orderErr" class="err-msg"></div>
     <div class="form-group">
       <label class="form-label">Customer</label>
-      <select class="form-select" id="nof-cust" onchange="selectNewCust(this.value)">
-        <option value="">-- Select customer --</option>
-        ${customersCache.map(c=>`<option value="${c.id}">${c.name} (${c.phone})</option>`).join('')}
-        <option value="__new__">+ Add new customer</option>
-      </select>
+      <input class="form-input" id="nof-search" placeholder="Search by name or phone..." 
+        oninput="searchCustomers(this.value)" autocomplete="off"/>
+      <div id="nof-results" style="display:none;background:var(--bg2);border:1.5px solid var(--border);
+        border-radius:var(--radius);margin-top:4px;max-height:180px;overflow-y:auto;"></div>
+      <div id="nof-selected" style="display:none;margin-top:6px;padding:10px 12px;
+        background:var(--green-bg);border:1px solid #bbf7d0;border-radius:var(--radius);
+        display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:13px;font-weight:500;color:var(--green);" id="nof-selected-label"></span>
+        <button onclick="clearCustomerSelection()" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:16px;">✕</button>
+      </div>
+      <input type="hidden" id="nof-cust-id"/>
+      <input type="hidden" id="nof-cust-name"/>
+      <input type="hidden" id="nof-cust-phone"/>
     </div>
     <div id="newCustFields" style="display:none;">
+      <div style="font-size:12px;color:var(--blue);background:var(--blue-bg);padding:7px 10px;border-radius:6px;margin-bottom:10px;">
+        ➕ Adding new customer
+      </div>
       <div class="form-group">
         <label class="form-label">Customer name</label>
         <input class="form-input" id="nof-cname" placeholder="Business name"/>
       </div>
       <div class="form-group">
         <label class="form-label">Phone</label>
-        <input class="form-input" id="nof-cphone" placeholder="10-digit mobile" type="tel"/>
+        <input class="form-input" id="nof-cphone" placeholder="10-digit mobile" type="tel"
+          oninput="this.value=parsePhone(this.value)"/>
       </div>
     </div>
     <div class="form-group">
@@ -1215,6 +1307,16 @@ function buildItemRow(i) {
     <input class="form-input item-qty" placeholder="Qty" type="number" id="item-qty-${i}" value="${newOrderItems[i].qty}" oninput="newOrderItems[${i}].qty=this.value"/>
     ${i>0?`<button class="item-del" onclick="removeItem(${i})">✕</button>`:'<div style="width:36px;flex-shrink:0;"></div>'}
   </div>`;
+}
+
+function parsePhone(raw) {
+  // Strip everything except digits
+  let digits = raw.replace(/\D/g, '');
+  // Remove country code 91 if present and result is 12 digits
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  // Remove leading 0 if present and result is 11 digits
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
 }
 
 async function isPhoneTaken(phone) {
@@ -1248,25 +1350,95 @@ window.selectNewCust = (v) => {
   document.getElementById('newCustFields').style.display = v==='__new__'?'block':'none';
 };
 
+window.searchCustomers = (q) => {
+  const resultsEl = document.getElementById('nof-results');
+  const newCustFields = document.getElementById('newCustFields');
+  const val = q.trim().toLowerCase();
+
+  if (!val) { resultsEl.style.display = 'none'; newCustFields.style.display = 'none'; return; }
+
+  const matches = customersCache.filter(c =>
+    c.name.toLowerCase().includes(val) || c.phone.includes(val)
+  ).slice(0, 8);
+
+  let html = matches.map(c => `
+    <div onclick="selectCustomer('${c.id}','${c.name}','${c.phone}')"
+      style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+      <div style="font-weight:500;color:var(--text);">${c.name}</div>
+      <div style="font-size:11px;color:var(--text2);">${c.phone}</div>
+    </div>`).join('');
+
+  html += `<div onclick="showNewCustomerFields()"
+    style="padding:10px 14px;cursor:pointer;font-size:13px;color:var(--blue);font-weight:500;
+    display:flex;align-items:center;gap:6px;"
+    onmouseover="this.style.background='var(--blue-bg)'" onmouseout="this.style.background=''">
+    ➕ Add "${q.trim()}" as new customer
+  </div>`;
+
+  resultsEl.innerHTML = html;
+  resultsEl.style.display = 'block';
+  newCustFields.style.display = 'none';
+};
+
+window.selectCustomer = (id, name, phone) => {
+  document.getElementById('nof-cust-id').value = id;
+  document.getElementById('nof-cust-name').value = name;
+  document.getElementById('nof-cust-phone').value = phone;
+  document.getElementById('nof-search').value = '';
+  document.getElementById('nof-results').style.display = 'none';
+  document.getElementById('newCustFields').style.display = 'none';
+  const sel = document.getElementById('nof-selected');
+  document.getElementById('nof-selected-label').textContent = name + ' · ' + phone;
+  sel.style.display = 'flex';
+};
+
+window.clearCustomerSelection = () => {
+  document.getElementById('nof-cust-id').value = '';
+  document.getElementById('nof-cust-name').value = '';
+  document.getElementById('nof-cust-phone').value = '';
+  document.getElementById('nof-selected').style.display = 'none';
+  document.getElementById('nof-search').value = '';
+  document.getElementById('nof-search').focus();
+};
+
+window.showNewCustomerFields = () => {
+  const q = document.getElementById('nof-search').value.trim();
+  document.getElementById('nof-results').style.display = 'none';
+  document.getElementById('newCustFields').style.display = 'block';
+  // Pre-fill name if search was text, phone if numeric
+  if (/^\d+$/.test(q)) {
+    document.getElementById('nof-cphone').value = parsePhone(q);
+  } else {
+    document.getElementById('nof-cname').value = q;
+  }
+};
+
 window.submitNewOrder = async () => {
-  const custSel = document.getElementById('nof-cust').value;
+  const custId = document.getElementById('nof-cust-id').value;
+  const newCustName = document.getElementById('nof-cname')?.value.trim();
+  const newCustPhoneRaw = document.getElementById('nof-cphone')?.value.trim();
+  const newCustVisible = document.getElementById('newCustFields')?.style.display !== 'none';
   let customer;
-  if (custSel === '__new__') {
-    const cname = document.getElementById('nof-cname').value.trim();
-    const cphone = document.getElementById('nof-cphone').value.trim();
-    if (!cname || !cphone) { showErr('orderErr','Enter customer name and phone'); return; }
-    const taken = await isPhoneTaken(cphone);
+
+  if (newCustVisible) {
+    // Adding a brand new customer
+    if (!newCustName || !newCustPhoneRaw) { showErr('orderErr','Enter customer name and phone'); return; }
+    const newCustPhone = parsePhone(newCustPhoneRaw);
+    if (newCustPhone.length !== 10) { showErr('orderErr','Enter a valid 10-digit phone number'); return; }
+    const taken = await isPhoneTaken(newCustPhone);
     if (taken) {
-      const existing = customersCache.find(c => c.phone === cphone);
-      showErr('orderErr', `⚠ Phone already linked to "${existing?.name || 'another customer'}". Select them from the list instead.`);
+      const existing = customersCache.find(c => c.phone === newCustPhone);
+      showErr('orderErr', `⚠ Phone already linked to "${existing?.name || 'another customer'}". Search and select them instead.`);
       return;
     }
-    await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name:cname, phone:cphone, createdAt:serverTimestamp() });
-    customer = { name:cname, phone:cphone };
-  } else if (custSel) {
-    const c = customersCache.find(x=>x.id===custSel);
+    await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name:newCustName, phone:newCustPhone, createdAt:serverTimestamp() });
+    customer = { name:newCustName, phone:newCustPhone };
+  } else if (custId) {
+    // Existing customer selected
+    const c = customersCache.find(x=>x.id===custId);
     customer = { name:c.name, phone:c.phone };
-  } else { showErr('orderErr','Please select a customer'); return; }
+  } else { showErr('orderErr','Please select or add a customer'); return; }
 
   const items = newOrderItems.filter(i=>i.laminate.trim()&&i.qty);
   if (!items.length) { showErr('orderErr','Add at least one item'); return; }
@@ -1388,8 +1560,10 @@ window.openNewCustomer = () => {
 
 window.saveNewCustomer = async () => {
   const name = document.getElementById('nc-name').value.trim();
-  const phone = document.getElementById('nc-phone').value.trim();
+  const phoneRaw = document.getElementById('nc-phone').value.trim();
+  const phone = parsePhone(phoneRaw);
   if (!name||!phone) { showErr('custErr','Fill in all fields'); return; }
+  if (phone.length !== 10) { showErr('custErr','Enter a valid 10-digit phone number'); return; }
   const btn = document.getElementById('saveCustBtn');
   btn.disabled = true; btn.textContent = 'Checking...';
   try {
