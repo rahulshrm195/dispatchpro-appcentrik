@@ -355,9 +355,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.5';
+const APP_VERSION = 'v1.0.6';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.6',
+    date: '30 Apr 2026',
+    tag: 'Operations',
+    changes: [
+      'Order queue fixed — godown manager and floor now see oldest order first (FIFO)',
+      'Office and admin continue to see newest orders first',
+    ]
+  },
   {
     version: 'v1.0.5',
     date: '30 Apr 2026',
@@ -685,9 +694,13 @@ function refreshCurrentTab() {
 // ─── FIRESTORE SUBSCRIPTIONS ──────────────────────────────────────────────────
 function subscribeOrders() {
   if (unsubOrders) unsubOrders();
+  // Manager and floor see oldest first (FIFO — accept and pack in order received)
+  // Office and admin see newest first (latest activity on top)
+  const role = currentProfile.role;
+  const sortDir = ['manager', 'floor'].includes(role) ? 'asc' : 'desc';
   const q = query(
     collection(db, 'tenants', currentTenantId, 'orders'),
-    orderBy('createdAt', 'desc')
+    orderBy('createdAt', sortDir)
   );
   unsubOrders = onSnapshot(q, snap => {
     ordersCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
