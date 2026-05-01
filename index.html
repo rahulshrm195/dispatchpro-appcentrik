@@ -355,9 +355,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.9';
+const APP_VERSION = 'v1.1.0';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.1.0',
+    date: '01 May 2026',
+    tag: 'Improvements',
+    changes: [
+      'Edit customer name — admin can update customer name from customer detail',
+      'Phone number locked — cannot be changed to protect order history integrity',
+      'Customer list search bar — search by name or phone instantly',
+      'Search available for both office staff and admin',
+    ]
+  },
   {
     version: 'v1.0.9',
     date: '01 May 2026',
@@ -1061,14 +1072,25 @@ function renderUsers() {
 }
 
 // ─── CUSTOMERS VIEW ───────────────────────────────────────────────────────────
+let custSearchQ = '';
+
 function renderCustomers() {
+  const filtered = customersCache.filter(c =>
+    !custSearchQ ||
+    c.name.toLowerCase().includes(custSearchQ) ||
+    c.phone.includes(custSearchQ)
+  );
   return `
     <div class="page-header">
       <div><div class="page-title">Customers</div><div class="page-sub">${customersCache.length} total</div></div>
       ${['office','admin'].includes(currentProfile.role)?`<button class="btn-outline" style="padding:7px 12px;font-size:12px;" onclick="openNewCustomer()">+ Add</button>`:''}
     </div>
+    <div class="search-wrap">
+      <input class="search-input" placeholder="Search by name or phone..." 
+        oninput="doCustSearch(this.value)" value="${custSearchQ}"/>
+    </div>
     <div class="section-pad">
-      ${customersCache.length ? customersCache.map(c=>{
+      ${filtered.length ? filtered.map(c=>{
         const cos = ordersCache.filter(o=>o.customer?.phone===c.phone);
         return `<div class="cust-item" onclick="openCustomerDetail('${c.id}')">
           <div class="cust-avatar">${initials(c.name)}</div>
@@ -1078,9 +1100,11 @@ function renderCustomers() {
           </div>
         </div>`;
       }).join('')
-      : `<div class="empty-state"><div class="empty-icon">👥</div><div class="empty-text">No customers yet</div></div>`}
+      : `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No customers found</div><div class="empty-sub">Try a different name or number</div></div>`}
     </div>`;
 }
+
+window.doCustSearch = (v) => { custSearchQ = v.toLowerCase(); refreshCurrentTab(); };
 
 // ─── SUPER ADMIN VIEWS ────────────────────────────────────────────────────────
 function renderSuperTenants() {
@@ -1638,19 +1662,61 @@ window.openCustomerDetail = (id) => {
   document.getElementById('detailContent').innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
       <div class="cust-avatar" style="width:48px;height:48px;font-size:15px;">${initials(c.name)}</div>
-      <div>
+      <div style="flex:1;">
         <div class="modal-title" style="margin-bottom:0;">${c.name}</div>
         <div style="font-size:13px;color:var(--text2);">${c.phone}</div>
       </div>
+      ${currentProfile.role === 'admin' ? `
+        <button onclick="openEditCustomer('${c.id}','${c.name.replace(/'/g,"\'")}')"
+          style="padding:6px 12px;border:1.5px solid var(--border2);border-radius:var(--radius);
+          background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:12px;
+          font-weight:500;color:var(--text);cursor:pointer;">
+          ✏️ Edit
+        </button>` : ''}
     </div>
     <div class="stat-grid" style="margin-bottom:14px;">
       <div class="stat-card"><div class="stat-val">${cos.length}</div><div class="stat-label">Total orders</div></div>
       <div class="stat-card"><div class="stat-val">${totalSheets}</div><div class="stat-label">Total sheets</div></div>
     </div>
     <div class="sec-label">Order History</div>
-    ${cos.slice().map(o=>orderCardHtml(o,false)).join('')}
+    ${cos.length ? cos.slice().map(o=>orderCardHtml(o,false)).join('') 
+      : `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No orders yet</div></div>`}
     <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="closeDetail()">Close</button>`;
   document.getElementById('detailModal').classList.add('open');
+};
+
+window.openEditCustomer = (id, currentName) => {
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">Edit Customer</div>
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--text2);">
+      📵 Phone number cannot be changed as it is linked to existing orders.
+    </div>
+    <div id="editCustErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Customer name</label>
+      <input class="form-input" id="edit-cust-name" value="${currentName}" placeholder="Business name"/>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-accent" id="saveEditCustBtn" onclick="saveEditCustomer('${id}')">Save Changes</button>
+    </div>`;
+  closeDetail();
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.saveEditCustomer = async (id) => {
+  const name = document.getElementById('edit-cust-name').value.trim();
+  if (!name) { showErr('editCustErr', 'Name cannot be empty'); return; }
+  const btn = document.getElementById('saveEditCustBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await updateDoc(doc(db, 'tenants', currentTenantId, 'customers', id), { name });
+    closeForm();
+    showToast('✓ Customer name updated');
+  } catch(e) {
+    showErr('editCustErr', 'Failed to save. Try again.');
+    btn.disabled = false; btn.textContent = 'Save Changes';
+  }
 };
 
 // ─── SUPER ADMIN ACTIONS ──────────────────────────────────────────────────────
