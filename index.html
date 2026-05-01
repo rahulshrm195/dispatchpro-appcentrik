@@ -355,9 +355,19 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.1.1';
+const APP_VERSION = 'v1.1.2';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.1.2',
+    date: '01 May 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Active orders always visible on today view regardless of creation date',
+      'New, Accepted, In Prep and Ready orders from previous days carry forward',
+      'Only Dispatched and Cancelled orders are date-filtered — they are closed',
+    ]
+  },
   {
     version: 'v1.1.1',
     date: '01 May 2026',
@@ -853,8 +863,9 @@ function orderCardHtml(o, showAge) {
 function renderOfficeOrders() {
   const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
+  const ACTIVE = ['new','accepted','prep','ready'];
   const filtered = ordersCache.filter(o =>
-    isSameDate(o.createdAt, filterDate) &&
+    (isSameDate(o.createdAt, filterDate) || ACTIVE.includes(o.status)) &&
     (filterStatus==='all'||o.status===filterStatus) &&
     ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ))
   );
@@ -1079,8 +1090,9 @@ function renderAdminDash() {
 function renderAdminOrders() {
   const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
+  const ACTIVE = ['new','accepted','prep','ready'];
   const filtered = ordersCache.filter(o =>
-    isSameDate(o.createdAt, filterDate) &&
+    (isSameDate(o.createdAt, filterDate) || ACTIVE.includes(o.status)) &&
     (filterStatus==='all'||o.status===filterStatus)
   );
   return `
