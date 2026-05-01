@@ -355,9 +355,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.8';
+const APP_VERSION = 'v1.0.9';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.9',
+    date: '01 May 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Active orders no longer counts cancelled orders',
+      'Active orders now correctly shows only New + Accepted + In Prep + Ready',
+    ]
+  },
   {
     version: 'v1.0.8',
     date: '01 May 2026',
@@ -952,12 +961,13 @@ function renderAdminDash() {
   const today = ordersCache.filter(o=>isToday(o.createdAt)).length;
   const dispatched = ordersCache.filter(o=>o.status==='dispatched').length;
   const stuck = ordersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
-  const active = ordersCache.filter(o=>o.status!=='dispatched').length;
+  const active = ordersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
   const dispTimes = ordersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
     .map(o=>(o.dispatchedAt.toMillis()-o.createdAt.toMillis())/3600000);
   const avgH = dispTimes.length ? (dispTimes.reduce((a,b)=>a+b,0)/dispTimes.length).toFixed(1) : '--';
   const sc = { new:0,accepted:0,prep:0,ready:0,dispatched:0 };
   ordersCache.forEach(o=>{ if(sc[o.status]!==undefined) sc[o.status]++; });
+  const cancelled = ordersCache.filter(o=>o.status==='cancelled').length;
   const maxC = Math.max(...Object.values(sc),1);
   const srcCall = ordersCache.filter(o=>o.source==='Call').length;
   const srcWA = ordersCache.filter(o=>o.source==='WhatsApp').length;
