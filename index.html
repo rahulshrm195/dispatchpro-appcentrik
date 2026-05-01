@@ -355,9 +355,17 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.0.7';
+const APP_VERSION = 'v1.0.8';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.0.8',
+    date: '01 May 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Orders today now shows correct same-day count instead of last 24 hours',
+    ]
+  },
   {
     version: 'v1.0.7',
     date: '30 Apr 2026',
@@ -484,6 +492,14 @@ function timeAgo(ts) {
 function hoursAgo(ts) {
   if (!ts) return 0;
   return (Date.now() - (ts.toMillis ? ts.toMillis() : ts)) / 3600000;
+}
+function isToday(ts) {
+  if (!ts) return false;
+  const d = new Date(ts.toMillis ? ts.toMillis() : ts);
+  const now = new Date();
+  return d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
 }
 function getAgeHtml(o) {
   if (o.status !== 'ready' || !o.readyAt) return '';
@@ -933,7 +949,7 @@ function renderFloorPacked() {
 // ─── ADMIN VIEWS ──────────────────────────────────────────────────────────────
 function renderAdminDash() {
   const total = ordersCache.length;
-  const today = ordersCache.filter(o=>hoursAgo(o.createdAt)<24).length;
+  const today = ordersCache.filter(o=>isToday(o.createdAt)).length;
   const dispatched = ordersCache.filter(o=>o.status==='dispatched').length;
   const stuck = ordersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
   const active = ordersCache.filter(o=>o.status!=='dispatched').length;
