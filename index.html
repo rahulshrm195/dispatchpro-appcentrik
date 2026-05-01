@@ -355,9 +355,22 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v1.1.1';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.1.1',
+    date: '01 May 2026',
+    tag: 'Operations',
+    changes: [
+      'Orders list now defaults to today only — no more scrolling through all history',
+      'Date picker to navigate to any previous day instantly',
+      'Quick Today button appears when viewing a past date',
+      'Order count and date shown in subtitle for context',
+      'Smart empty state — different message for today vs past dates',
+      'After creating a new order — view snaps back to today automatically',
+    ]
+  },
   {
     version: 'v1.1.0',
     date: '01 May 2026',
@@ -478,6 +491,7 @@ let currentTenantId = null;
 let currentTab = 0;
 let filterStatus = 'all';
 let searchQ = '';
+let filterDate = new Date().toISOString().split('T')[0]; // Default: today YYYY-MM-DD
 let ordersCache = [];
 let customersCache = [];
 let usersCache = [];
@@ -520,6 +534,28 @@ function isToday(ts) {
   return d.getDate() === now.getDate() &&
     d.getMonth() === now.getMonth() &&
     d.getFullYear() === now.getFullYear();
+}
+function isSameDate(ts, dateStr) {
+  if (!ts) return false;
+  const d = new Date(ts.toMillis ? ts.toMillis() : ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}` === dateStr;
+}
+function getTodayStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+}
+function formatDateDisplay(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = getTodayStr();
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
+  const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`;
+  if (dateStr === today) return 'Today';
+  if (dateStr === yStr) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
 }
 function getAgeHtml(o) {
   if (o.status !== 'ready' || !o.readyAt) return '';
@@ -815,30 +851,49 @@ function orderCardHtml(o, showAge) {
 
 // ─── OFFICE VIEWS ─────────────────────────────────────────────────────────────
 function renderOfficeOrders() {
-  const filters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
+  const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
+  const isTodaySelected = filterDate === getTodayStr();
   const filtered = ordersCache.filter(o =>
+    isSameDate(o.createdAt, filterDate) &&
     (filterStatus==='all'||o.status===filterStatus) &&
     ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ))
   );
   return `
     <div class="page-header">
-      <div><div class="page-title">Orders</div><div class="page-sub">${ordersCache.length} total · FY ${getFY()}</div></div>
+      <div>
+        <div class="page-title">Orders</div>
+        <div class="page-sub">${filtered.length} order${filtered.length!==1?'s':''} · ${formatDateDisplay(filterDate)}</div>
+      </div>
       <span class="fy-label">FY ${getFY()}</span>
     </div>
-    <div class="search-wrap">
+    <div style="padding:8px 16px;display:flex;align-items:center;gap:8px;">
+      <input type="date" value="${filterDate}" max="${getTodayStr()}"
+        onchange="doDateFilter(this.value)"
+        style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);
+        background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+      ${!isTodaySelected ? `<button onclick="doDateFilter('${getTodayStr()}')"
+        style="padding:9px 12px;border:1.5px solid var(--accent);border-radius:var(--radius);
+        background:var(--accent);color:white;font-family:'DM Sans',sans-serif;font-size:12px;
+        font-weight:500;cursor:pointer;white-space:nowrap;">Today</button>` : ''}
+    </div>
+    <div class="search-wrap" style="padding-top:0;">
       <input class="search-input" placeholder="Search orders or customer..." oninput="doSearch(this.value)" value="${searchQ}"/>
     </div>
     <div class="filter-chips">
-      ${filters.map(f=>`<span class="chip ${filterStatus===f?'active':''}" onclick="doFilter('${f}')">${f==='all'?'All':getStatusLabel(f)}</span>`).join('')}
+      ${statusFilters.map(f=>`<span class="chip ${filterStatus===f?'active':''}" onclick="doFilter('${f}')">${f==='all'?'All':getStatusLabel(f)}</span>`).join('')}
     </div>
     <div class="section-pad section-gap">
       ${filtered.length ? filtered.map(o=>orderCardHtml(o,true)).join('')
-        : `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No orders found</div></div>`}
+        : `<div class="empty-state"><div class="empty-icon">📭</div>
+           <div class="empty-text">No orders on ${formatDateDisplay(filterDate)}</div>
+           <div class="empty-sub">${isTodaySelected?'Orders will appear here as they are created':'Try a different date'}</div>
+           </div>`}
     </div>`;
 }
 
 window.doSearch = (v) => { searchQ = v.toLowerCase(); refreshCurrentTab(); };
 window.doFilter = (f) => { filterStatus = f; refreshCurrentTab(); };
+window.doDateFilter = (d) => { filterDate = d; filterStatus = 'all'; searchQ = ''; refreshCurrentTab(); };
 
 // ─── MANAGER VIEWS ────────────────────────────────────────────────────────────
 function renderManagerNew() {
@@ -1022,19 +1077,39 @@ function renderAdminDash() {
 }
 
 function renderAdminOrders() {
-  const filters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
-  const filtered = ordersCache.filter(o=>filterStatus==='all'||o.status===filterStatus);
+  const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
+  const isTodaySelected = filterDate === getTodayStr();
+  const filtered = ordersCache.filter(o =>
+    isSameDate(o.createdAt, filterDate) &&
+    (filterStatus==='all'||o.status===filterStatus)
+  );
   return `
     <div class="page-header">
-      <div><div class="page-title">All Orders</div><div class="page-sub">${ordersCache.length} total</div></div>
+      <div>
+        <div class="page-title">Orders</div>
+        <div class="page-sub">${filtered.length} order${filtered.length!==1?'s':''} · ${formatDateDisplay(filterDate)}</div>
+      </div>
       <button class="btn-outline" style="padding:7px 12px;font-size:12px;" onclick="openNewOrder()">+ New</button>
     </div>
+    <div style="padding:8px 16px;display:flex;align-items:center;gap:8px;">
+      <input type="date" value="${filterDate}" max="${getTodayStr()}"
+        onchange="doDateFilter(this.value)"
+        style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);
+        background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+      ${!isTodaySelected ? `<button onclick="doDateFilter('${getTodayStr()}')"
+        style="padding:9px 12px;border:1.5px solid var(--accent);border-radius:var(--accent);
+        background:var(--accent);color:white;font-family:'DM Sans',sans-serif;font-size:12px;
+        font-weight:500;cursor:pointer;white-space:nowrap;border-radius:var(--radius);">Today</button>` : ''}
+    </div>
     <div class="filter-chips">
-      ${filters.map(f=>`<span class="chip ${filterStatus===f?'active':''}" onclick="doFilter('${f}')">${f==='all'?'All':getStatusLabel(f)}</span>`).join('')}
+      ${statusFilters.map(f=>`<span class="chip ${filterStatus===f?'active':''}" onclick="doFilter('${f}')">${f==='all'?'All':getStatusLabel(f)}</span>`).join('')}
     </div>
     <div class="section-pad">
       ${filtered.length ? filtered.map(o=>orderCardHtml(o,true)).join('')
-        : `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No orders</div></div>`}
+        : `<div class="empty-state"><div class="empty-icon">📭</div>
+           <div class="empty-text">No orders on ${formatDateDisplay(filterDate)}</div>
+           <div class="empty-sub">${isTodaySelected?'Orders will appear here as they are created':'Try a different date'}</div>
+           </div>`}
     </div>`;
 }
 
@@ -1544,6 +1619,7 @@ window.submitNewOrder = async () => {
     closeForm();
     showToast(`✓ Order ${orderId} created`);
     filterStatus = 'all';
+    filterDate = getTodayStr();
   } catch(e) {
     showErr('orderErr','Failed to create order. Try again.');
     btn.disabled = false; btn.textContent = 'Create Order →';
