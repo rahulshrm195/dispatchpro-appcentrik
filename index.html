@@ -138,6 +138,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .item-del{width:36px;height:40px;background:var(--red-bg);border:1px solid #fecaca;border-radius:var(--radius);color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
 .add-item-btn{width:100%;padding:10px;border:1.5px dashed var(--border2);border-radius:var(--radius);background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
 .add-item-btn:hover{border-color:var(--accent);color:var(--accent);}
+.lam-wrap{flex:1;position:relative;}
+.lam-suggestions{position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);max-height:160px;overflow-y:auto;z-index:50;box-shadow:var(--shadow);}
+.lam-suggestion{padding:9px 14px;font-size:13px;color:var(--text);cursor:pointer;border-bottom:1px solid var(--border);}
+.lam-suggestion:last-child{border-bottom:none;}
+.lam-suggestion:hover{background:var(--bg3);}
 .action-row{display:flex;gap:8px;margin-top:16px;}
 .btn-outline{flex:1;padding:12px;border:1.5px solid var(--border2);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;text-align:center;}
 .btn-accent{flex:2;padding:12px;background:var(--accent);border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:pointer;text-align:center;}
@@ -355,9 +360,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.1.3';
+const APP_VERSION = 'v1.1.4';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.1.4',
+    date: '02 May 2026',
+    tag: 'Smart Entry',
+    changes: [
+      'Laminate autocomplete — type 2+ characters to see matching suggestions',
+      'Laminate names auto-saved silently when new order is created',
+      'Library grows automatically — no manual setup needed',
+      'Suggestions appear instantly from local cache — zero lag',
+    ]
+  },
   {
     version: 'v1.1.3',
     date: '01 May 2026',
@@ -514,6 +530,7 @@ let searchQ = '';
 let filterDate = new Date().toISOString().split('T')[0]; // Default: today YYYY-MM-DD
 let ordersCache = [];
 let customersCache = [];
+let laminatesCache = [];
 let usersCache = [];
 let tenantsCache = [];
 let unsubOrders = null;
@@ -689,7 +706,7 @@ async function doLogin() {
 async function doLogout() {
   if (unsubOrders) unsubOrders();
   if (unsubCustomers) unsubCustomers();
-  ordersCache = []; customersCache = []; usersCache = []; tenantsCache = [];
+  ordersCache = []; customersCache = []; usersCache = []; tenantsCache = []; laminatesCache = [];
   await signOut(auth);
 }
 
@@ -743,7 +760,7 @@ function setupApp() {
       { icon:'👥', label:'Customers', view: renderCustomers },
       { icon:'👤', label:'Users', view: renderUsers },
     ];
-    subscribeOrders(); subscribeCustomers(); loadUsers();
+    subscribeOrders(); subscribeCustomers(); loadUsers(); subscribeLaminates();
   } else if (role === 'office') {
     tabs = [
       { icon:'📋', label:'Orders', view: renderOfficeOrders },
@@ -835,6 +852,29 @@ function subscribeCustomers() {
     customersCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     refreshCurrentTab();
   });
+}
+
+function subscribeLaminates() {
+  const q = query(collection(db, 'tenants', currentTenantId, 'laminates'), orderBy('name'));
+  onSnapshot(q, snap => {
+    laminatesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  });
+}
+
+async function saveLaminateIfNew(name) {
+  if (!name || !name.trim()) return;
+  const clean = name.trim().toUpperCase();
+  // Check cache first
+  if (laminatesCache.find(l => l.name.toUpperCase() === clean)) return;
+  // Save to Firestore silently in background
+  try {
+    await addDoc(collection(db, 'tenants', currentTenantId, 'laminates'), {
+      name: clean,
+      createdAt: serverTimestamp()
+    });
+  } catch(e) {
+    // Silent fail — don't interrupt order creation
+  }
 }
 
 async function loadUsers() {
@@ -1491,11 +1531,46 @@ function buildNewOrderForm() {
 
 function buildItemRow(i) {
   return `<div class="item-row" id="item-row-${i}">
-    <input class="form-input" style="flex:1;margin-bottom:0;" placeholder="Laminate name / code" id="item-lam-${i}" value="${newOrderItems[i].laminate}" oninput="newOrderItems[${i}].laminate=this.value"/>
+    <div class="lam-wrap">
+      <input class="form-input" style="width:100%;margin-bottom:0;" placeholder="Laminate name / code"
+        id="item-lam-${i}" value="${newOrderItems[i].laminate}"
+        oninput="newOrderItems[${i}].laminate=this.value; showLamSuggestions(${i}, this.value)"
+        onblur="hideLamSuggestions(${i})"
+        autocomplete="off"/>
+      <div class="lam-suggestions" id="lam-sug-${i}" style="display:none;"></div>
+    </div>
     <input class="form-input item-qty" placeholder="Qty" type="number" id="item-qty-${i}" value="${newOrderItems[i].qty}" oninput="newOrderItems[${i}].qty=this.value"/>
     ${i>0?`<button class="item-del" onclick="removeItem(${i})">✕</button>`:'<div style="width:36px;flex-shrink:0;"></div>'}
   </div>`;
 }
+
+window.showLamSuggestions = (i, val) => {
+  const el = document.getElementById('lam-sug-' + i);
+  if (!el) return;
+  const q = val.trim().toUpperCase();
+  if (!q || q.length < 2) { el.style.display = 'none'; return; }
+  const matches = laminatesCache.filter(l => l.name.toUpperCase().includes(q)).slice(0, 8);
+  if (!matches.length) { el.style.display = 'none'; return; }
+  el.innerHTML = matches.map(l =>
+    `<div class="lam-suggestion" onmousedown="selectLaminate(${i},'${l.name}')">${l.name}</div>`
+  ).join('');
+  el.style.display = 'block';
+};
+
+window.hideLamSuggestions = (i) => {
+  setTimeout(() => {
+    const el = document.getElementById('lam-sug-' + i);
+    if (el) el.style.display = 'none';
+  }, 150);
+};
+
+window.selectLaminate = (i, name) => {
+  newOrderItems[i].laminate = name;
+  const input = document.getElementById('item-lam-' + i);
+  if (input) input.value = name;
+  const el = document.getElementById('lam-sug-' + i);
+  if (el) el.style.display = 'none';
+};
 
 function parsePhone(raw) {
   // Strip everything except digits
@@ -1657,6 +1732,8 @@ window.submitNewOrder = async () => {
       timeline: [{ action:'Order created', by:currentProfile.name, time:new Date() }],
       createdAt: serverTimestamp()
     });
+    // Save new laminate names silently in background
+    items.forEach(i => saveLaminateIfNew(i.laminate));
     closeForm();
     showToast(`✓ Order ${orderId} created`);
     filterStatus = 'all';
