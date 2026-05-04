@@ -300,6 +300,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div>
       <div class="topbar-logo">DispatchPro <span style="font-size:9px;opacity:0.45;font-family:'DM Mono',monospace;" id="topbarVer"></span></div>
       <div class="topbar-role" id="topbarRole"></div>
+      <div style="font-size:10px;opacity:0.5;margin-top:1px;" id="topbarTenant"></div>
     </div>
     <div class="topbar-right">
       <span class="badge-count" id="topbarBadge" style="display:none">0</span>
@@ -360,9 +361,26 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.1.4';
+const APP_VERSION = 'v1.2.0';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.2.0',
+    date: '05 May 2026',
+    tag: 'Major Update',
+    changes: [
+      'Fixed: Last laminate item not saved on order create — critical bug',
+      'Added: Cancelled orders in pipeline dashboard chart',
+      'Fixed: Dashboard total orders now excludes cancelled',
+      'Fixed: Timeline shows actual timestamp instead of hours ago',
+      'Fixed: Same-day dispatched orders carry forward to today view',
+      'Fixed: Floor team FIFO — oldest accepted/prep orders shown first',
+      'Improved: Notes shown prominently on manager accept view and floor kiosk',
+      'Improved: Larger laminate font in floor packed/ready view',
+      'Added: Smart reorder — after cancelling, offer to recreate with same items',
+      'Improved: Topbar shows user name and tenant name separately',
+    ]
+  },
   {
     version: 'v1.1.4',
     date: '02 May 2026',
@@ -560,6 +578,19 @@ function timeAgo(ts) {
   if (d < 86400000) return Math.floor(d/3600000) + 'h ago';
   return Math.floor(d/86400000) + 'd ago';
 }
+function formatTimestamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts.toMillis ? ts.toMillis() : ts);
+  const day = d.getDate();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const month = months[d.getMonth()];
+  const year = d.getFullYear();
+  let hrs = d.getHours();
+  const mins = String(d.getMinutes()).padStart(2,'0');
+  const ampm = hrs >= 12 ? 'PM' : 'AM';
+  hrs = hrs % 12 || 12;
+  return `${day} ${month} ${year}, ${hrs}:${mins} ${ampm}`;
+}
 function hoursAgo(ts) {
   if (!ts) return 0;
   return (Date.now() - (ts.toMillis ? ts.toMillis() : ts)) / 3600000;
@@ -682,9 +713,9 @@ function showLogin() {
 function showApp() {
   document.getElementById('loginScreen').classList.remove('active');
   document.getElementById('appScreen').classList.add('active');
-  document.getElementById('topbarRole').textContent = currentProfile.tenantName
-    ? `${currentProfile.name} · ${currentProfile.tenantName}`
-    : currentProfile.name;
+  document.getElementById('topbarRole').textContent = currentProfile.name;
+  const tenantEl = document.getElementById('topbarTenant');
+  if (tenantEl && currentProfile.tenantName) tenantEl.textContent = currentProfile.tenantName;
   setupApp();
 }
 
@@ -933,11 +964,17 @@ function renderOfficeOrders() {
   const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
   const ACTIVE = ['new','accepted','prep','ready'];
-  const filtered = ordersCache.filter(o =>
-    (isSameDate(o.createdAt, filterDate) || ACTIVE.includes(o.status)) &&
-    (filterStatus==='all'||o.status===filterStatus) &&
-    ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ))
-  );
+  const todayStr = getTodayStr();
+  const isViewingToday = filterDate === todayStr;
+  const filtered = ordersCache.filter(o => {
+    const createdOnDate = isSameDate(o.createdAt, filterDate);
+    const isActive = ACTIVE.includes(o.status);
+    // Same day dispatched carry forward to today view
+    const isSameDayDispatched = o.status==='dispatched' && isViewingToday && isSameDate(o.dispatchedAt||o.createdAt, todayStr);
+    return (createdOnDate || isActive || isSameDayDispatched) &&
+      (filterStatus==='all'||o.status===filterStatus) &&
+      ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ));
+  });
   return `
     <div class="page-header">
       <div>
@@ -992,6 +1029,7 @@ function renderManagerNew() {
             <span class="pill pill-new">New</span>
           </div>
           <div class="oc-items">${(o.items||[]).map(i=>`${i.laminate} × ${i.qty} sheets`).join('<br>')}</div>
+          ${o.notes?.length?`<div style="margin-top:8px;padding:8px 10px;background:var(--amber-bg);border-radius:8px;font-size:12px;color:var(--amber);font-weight:500;">📝 ${o.notes.join(' · ')}</div>`:''}
           <div class="oc-footer"><span class="oc-time">${timeAgo(o.createdAt)}</span><span class="oc-by">via ${o.source}</span></div>
           <div style="margin-top:10px;display:flex;gap:8px;">
             <button class="btn-accent" style="flex:1;padding:11px;" onclick="acceptOrder('${o.id}')">✓ Accept Order</button>
@@ -1050,7 +1088,7 @@ function renderManagerDone() {
 
 // ─── FLOOR VIEWS ──────────────────────────────────────────────────────────────
 function renderFloorToPack() {
-  const list = ordersCache.filter(o=>o.status==='accepted');
+  const list = ordersCache.filter(o=>o.status==='accepted').slice().sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
   return `
     <div class="kiosk-header">
       <div class="kiosk-title">📦 Orders to Pack</div>
@@ -1064,7 +1102,7 @@ function renderFloorToPack() {
           <div class="kiosk-items">
             ${(o.items||[]).map(i=>`${i.laminate} — <strong>${i.qty} sheets</strong>`).join('<br>')}
           </div>
-          ${o.notes?.length?`<div style="font-size:12px;color:var(--red);margin-bottom:10px;">⚠ ${o.notes[0]}</div>`:''}
+          ${o.notes?.length?`<div style="padding:8px 10px;background:var(--amber-bg);border-radius:8px;font-size:13px;color:var(--amber);font-weight:500;margin-bottom:10px;">📝 Note: ${o.notes.join(' · ')}</div>`:''}
           <button class="kiosk-btn accept" onclick="startPrep('${o.id}')">▶ Start Packing</button>
         </div>`).join('')
         : `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No orders to pack</div><div class="empty-sub">Check back soon</div></div>`}
@@ -1072,7 +1110,7 @@ function renderFloorToPack() {
 }
 
 function renderFloorPacked() {
-  const list = ordersCache.filter(o=>o.status==='prep');
+  const list = ordersCache.filter(o=>o.status==='prep').slice().sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
   return `
     <div class="kiosk-header">
       <div class="kiosk-title">✅ Mark as Ready</div>
@@ -1086,8 +1124,8 @@ function renderFloorPacked() {
           <div class="kiosk-card-id">${o.orderId||o.id}</div>
           <div class="kiosk-card-cust">${o.customer?.name||'—'}</div>
           <div class="kiosk-items">
-            ${(o.items||[]).map(i=>`${i.laminate} — ${i.qty} sheets`).join('<br>')}
-            <strong style="color:var(--text)">Total: ${totalSheets} sheets</strong>
+            ${(o.items||[]).map(i=>`<span style="font-size:15px;font-weight:500;color:var(--text);">${i.laminate}</span> — <strong>${i.qty} sheets</strong>`).join('<br>')}
+            <div style="margin-top:6px;font-size:14px;font-weight:600;color:var(--text);">Total: ${totalSheets} sheets</div>
           </div>
           <div class="kiosk-roll-input">
             <label>Rolls packed:</label>
@@ -1103,17 +1141,16 @@ function renderFloorPacked() {
 
 // ─── ADMIN VIEWS ──────────────────────────────────────────────────────────────
 function renderAdminDash() {
-  const total = ordersCache.length;
-  const today = ordersCache.filter(o=>isToday(o.createdAt)).length;
+  const total = ordersCache.filter(o=>o.status!=='cancelled').length;
+  const today = ordersCache.filter(o=>isToday(o.createdAt)&&o.status!=='cancelled').length;
   const dispatched = ordersCache.filter(o=>o.status==='dispatched').length;
   const stuck = ordersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
   const active = ordersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
   const dispTimes = ordersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
     .map(o=>(o.dispatchedAt.toMillis()-o.createdAt.toMillis())/3600000);
   const avgH = dispTimes.length ? (dispTimes.reduce((a,b)=>a+b,0)/dispTimes.length).toFixed(1) : '--';
-  const sc = { new:0,accepted:0,prep:0,ready:0,dispatched:0 };
+  const sc = { new:0,accepted:0,prep:0,ready:0,dispatched:0,cancelled:0 };
   ordersCache.forEach(o=>{ if(sc[o.status]!==undefined) sc[o.status]++; });
-  const cancelled = ordersCache.filter(o=>o.status==='cancelled').length;
   const maxC = Math.max(...Object.values(sc),1);
   const srcCall = ordersCache.filter(o=>o.source==='Call').length;
   const srcWA = ordersCache.filter(o=>o.source==='WhatsApp').length;
@@ -1160,10 +1197,15 @@ function renderAdminOrders() {
   const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
   const ACTIVE = ['new','accepted','prep','ready'];
-  const filtered = ordersCache.filter(o =>
-    (isSameDate(o.createdAt, filterDate) || ACTIVE.includes(o.status)) &&
-    (filterStatus==='all'||o.status===filterStatus)
-  );
+  const todayStr = getTodayStr();
+  const isViewingToday = filterDate === todayStr;
+  const filtered = ordersCache.filter(o => {
+    const createdOnDate = isSameDate(o.createdAt, filterDate);
+    const isActive = ACTIVE.includes(o.status);
+    const isSameDayDispatched = o.status==='dispatched' && isViewingToday && isSameDate(o.dispatchedAt||o.createdAt, todayStr);
+    return (createdOnDate || isActive || isSameDayDispatched) &&
+      (filterStatus==='all'||o.status===filterStatus);
+  });
   return `
     <div class="page-header">
       <div>
@@ -1316,7 +1358,7 @@ window.openDetail = (id) => {
     <div class="detail-section" style="margin-bottom:10px;">
       <div class="detail-row"><span class="detail-key">Created by</span><span class="detail-val">${o.createdBy||'—'}</span></div>
       <div class="detail-row"><span class="detail-key">Source</span><span class="detail-val">${o.source||'—'}</span></div>
-      <div class="detail-row"><span class="detail-key">Created</span><span class="detail-val">${timeAgo(o.createdAt)}</span></div>
+      <div class="detail-row"><span class="detail-key">Created</span><span class="detail-val">${formatTimestamp(o.createdAt)}</span></div>
       ${o.rollsPacked?`<div class="detail-row"><span class="detail-key">Rolls packed</span><span class="detail-val">${o.rollsPacked}</span></div>`:''}
       ${o.vehicleNo?`<div class="detail-row"><span class="detail-key">Vehicle</span><span class="detail-val" style="font-family:'DM Mono',monospace;">${o.vehicleNo}</span></div>`:''}
     </div>
@@ -1335,7 +1377,7 @@ window.openDetail = (id) => {
           <div class="tl-dot"><svg viewBox="0 0 10 10"><polyline points="2,5 4,7 8,3"/></svg></div>
           <div class="tl-content">
             <div class="tl-action">${t.action}</div>
-            <div class="tl-by">${t.by} · <span class="tl-time">${timeAgo(t.time)}</span></div>
+            <div class="tl-by">${t.by} · <span class="tl-time">${formatTimestamp(t.time)}</span></div>
           </div>
         </div>`).join('')}
     </div>
@@ -1405,10 +1447,35 @@ window.confirmCancelOrder = async (id) => {
     });
     closeForm();
     showToast('Order cancelled');
+    // Offer smart reorder
+    setTimeout(() => {
+      const reorder = confirm('Would you like to create a new order with the same items?');
+      if (reorder) openSmartReorder(o);
+    }, 400);
   } catch(e) {
     showErr('cancelErr','Failed to cancel. Try again.');
     btn.disabled = false; btn.textContent = 'Confirm Cancellation';
   }
+};
+
+window.openSmartReorder = (o) => {
+  newOrderItems = (o.items||[]).map(i=>({ laminate:i.laminate, qty:String(i.qty) }));
+  if (!newOrderItems.length) newOrderItems = [{ laminate:'', qty:'' }];
+  document.getElementById('formContent').innerHTML = buildNewOrderForm();
+  // Pre-select customer
+  setTimeout(() => {
+    const c = customersCache.find(x=>x.phone===o.customer?.phone);
+    if (c) {
+      document.getElementById('nof-cust-id').value = c.id;
+      document.getElementById('nof-cust-name').value = c.name;
+      document.getElementById('nof-cust-phone').value = c.phone;
+      document.getElementById('nof-selected-label').textContent = c.name + ' · ' + c.phone;
+      document.getElementById('nof-selected').style.display = 'flex';
+    }
+    // Pre-select source
+    if (o.source) document.getElementById('nof-source').value = o.source;
+  }, 100);
+  document.getElementById('formModal').classList.add('open');
 };
 
 // ─── ORDER ACTIONS ────────────────────────────────────────────────────────────
@@ -1678,6 +1745,7 @@ window.showNewCustomerFields = () => {
 };
 
 window.submitNewOrder = async () => {
+  syncItemsFromDOM(); // ensure last typed values are captured before submit
   const custId = document.getElementById('nof-cust-id').value;
   const newCustName = document.getElementById('nof-cname')?.value.trim();
   const newCustPhoneRaw = document.getElementById('nof-cphone')?.value.trim();
