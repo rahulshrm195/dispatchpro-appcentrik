@@ -201,10 +201,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .kiosk-card-id{font-family:'DM Mono',monospace;font-size:11px;color:var(--text2);}
 .kiosk-card-cust{font-size:16px;font-weight:600;color:var(--text);margin:4px 0;}
 .kiosk-items{font-size:13px;color:var(--text2);margin-bottom:12px;}
-.kiosk-roll-input{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
-.kiosk-roll-input label{font-size:12px;font-weight:500;color:var(--text2);white-space:nowrap;}
-.kiosk-roll-num{width:80px;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Mono',monospace;font-size:16px;font-weight:500;text-align:center;outline:none;}
-.kiosk-roll-num:focus{border-color:var(--accent);}
+.kiosk-roll-input{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+.kiosk-roll-input label{font-size:12px;font-weight:500;color:var(--text2);}
+.kiosk-roll-stepper{display:flex;align-items:center;gap:0;border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden;width:100%;}
+.kiosk-roll-btn{width:56px;height:52px;background:var(--bg3);border:none;font-size:22px;font-weight:400;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 0.1s;}
+.kiosk-roll-btn:active{background:var(--border2);}
+.kiosk-roll-num{flex:1;padding:8px 10px;border:none;border-left:1.5px solid var(--border);border-right:1.5px solid var(--border);background:var(--bg2);font-family:'DM Mono',monospace;font-size:22px;font-weight:600;text-align:center;outline:none;color:var(--text);}
 .kiosk-btn{width:100%;padding:13px;background:var(--green);color:white;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
 .kiosk-btn.accept{background:var(--blue);}
 .kiosk-btn:disabled{opacity:0.5;cursor:not-allowed;}
@@ -361,9 +363,19 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.2.3';
+const APP_VERSION = 'v1.2.4';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.2.4',
+    date: '05 May 2026',
+    tag: 'UX',
+    changes: [
+      'Roll quantity stepper — tap − and + buttons instead of typing on keyboard',
+      'Suggested roll count pre-filled automatically as default value',
+      'Touch friendly — large tap targets for godown floor team',
+    ]
+  },
   {
     version: 'v1.2.3',
     date: '05 May 2026',
@@ -1340,9 +1352,12 @@ function renderFloorPacked() {
             <div style="margin-top:6px;font-size:14px;font-weight:600;color:var(--text);">Total: ${totalSheets} sheets</div>
           </div>
           <div class="kiosk-roll-input">
-            <label>Rolls packed:</label>
-            <input class="kiosk-roll-num" type="number" min="1" id="rolls-${o.id}" placeholder="${suggested}"/>
-            <span style="font-size:11px;color:var(--text2);">~${suggested} suggested</span>
+            <label>Rolls packed: <span style="color:var(--text3);font-weight:400;">(suggested: ${suggested})</span></label>
+            <div class="kiosk-roll-stepper">
+              <button class="kiosk-roll-btn" onclick="changeRolls('${o.id}',-1)">−</button>
+              <input class="kiosk-roll-num" type="number" min="1" id="rolls-${o.id}" placeholder="${suggested}" value="${suggested}"/>
+              <button class="kiosk-roll-btn" onclick="changeRolls('${o.id}',1)">+</button>
+            </div>
           </div>
           <button class="kiosk-btn" onclick="markReady('${o.id}')">✓ Mark Ready for Dispatch</button>
         </div>`;
@@ -1712,6 +1727,14 @@ window.startPrep = async (id) => {
       { action: 'Packing started', by: currentProfile.name, time: new Date() }]
   });
   showToast('▶ Packing started');
+};
+
+window.changeRolls = (id, delta) => {
+  const el = document.getElementById('rolls-' + id);
+  if (!el) return;
+  const current = parseInt(el.value) || 0;
+  const newVal = Math.max(1, current + delta);
+  el.value = newVal;
 };
 
 window.markReady = async (id) => {
