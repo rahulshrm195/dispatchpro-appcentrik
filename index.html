@@ -364,9 +364,19 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.2.4';
+const APP_VERSION = 'v1.2.5';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.2.5',
+    date: '05 May 2026',
+    tag: 'Safety',
+    changes: [
+      'Confirmation step before marking order ready for dispatch',
+      'Shows customer name and roll count before confirming',
+      'Prevents accidental taps on the floor kiosk',
+    ]
+  },
   {
     version: 'v1.2.4',
     date: '05 May 2026',
@@ -1360,7 +1370,7 @@ function renderFloorPacked() {
               <button class="kiosk-roll-btn" onclick="changeRolls('${o.id}',1)">+</button>
             </div>
           </div>
-          <button class="kiosk-btn" onclick="markReady('${o.id}')">✓ Mark Ready for Dispatch</button>
+          <button class="kiosk-btn" onclick="confirmMarkReady('${o.id}','${o.customer?.name||"Order"}')">✓ Mark Ready for Dispatch</button>
         </div>`;
       }).join('')
       : `<div class="empty-state"><div class="empty-icon">📦</div><div class="empty-text">No orders in packing</div></div>`}
@@ -1736,6 +1746,27 @@ window.changeRolls = (id, delta) => {
   const current = parseInt(el.value) || 0;
   const newVal = Math.max(1, current + delta);
   el.value = newVal;
+};
+
+window.confirmMarkReady = (id, customerName) => {
+  const rolls = document.getElementById('rolls-' + id)?.value;
+  if (!rolls || parseInt(rolls) < 1) { showToast('Enter number of rolls packed'); return; }
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">Confirm Ready for Dispatch</div>
+    <div style="background:var(--green-bg);border:1px solid #bbf7d0;border-radius:var(--radius);padding:14px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:600;color:var(--green);margin-bottom:4px;">${customerName}</div>
+      <div style="font-size:13px;color:var(--green);">📦 ${rolls} roll${parseInt(rolls)!==1?'s':''} packed</div>
+    </div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">
+      Are you sure this order is fully packed and ready for dispatch? This cannot be undone.
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-green" style="flex:2;padding:12px;" onclick="closeForm();markReady('${id}')">
+        ✓ Yes, Mark Ready
+      </button>
+    </div>`;
+  document.getElementById('formModal').classList.add('open');
 };
 
 window.markReady = async (id) => {
