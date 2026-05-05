@@ -361,9 +361,21 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.2.2';
+const APP_VERSION = 'v1.2.3';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.2.3',
+    date: '05 May 2026',
+    tag: 'Notifications',
+    changes: [
+      'Notification status banner — green if enabled, red if blocked, amber if not yet set',
+      'How to enable guide — step by step instructions if notifications were denied',
+      'Friendly permission prompt — explains why before asking permission',
+      'Re-enable button — shown when notifications are blocked',
+      'Banner shown on manager New Orders tab and floor To Pack tab',
+    ]
+  },
   {
     version: 'v1.2.2',
     date: '05 May 2026',
@@ -754,8 +766,19 @@ function showApp() {
 function requestNotificationPermission() {
   if (!('Notification' in window)) return;
   if (Notification.permission === 'default') {
-    Notification.requestPermission();
+    // Show friendly explanation before asking
+    setTimeout(() => {
+      const allow = confirm(
+        'DispatchPro would like to send you notifications when new orders arrive.\n\nTap OK to enable — this helps you stay updated without keeping the app open.'
+      );
+      if (allow) Notification.requestPermission();
+    }, 1500);
   }
+}
+
+function getNotificationStatus() {
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission; // 'granted', 'denied', or 'default'
 }
 
 function sendNotification(title, body, icon) {
@@ -780,6 +803,80 @@ function sendNotification(title, body, icon) {
     // Silent fail
   }
 }
+
+function getNotificationBanner() {
+  const role = currentProfile?.role;
+  if (!['manager','floor'].includes(role)) return '';
+  if (!('Notification' in window)) return '';
+
+  const status = getNotificationStatus();
+
+  if (status === 'granted') {
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 16px;
+      background:var(--green-bg);border-bottom:1px solid #bbf7d0;font-size:12px;color:var(--green);">
+      🔔 Notifications enabled
+    </div>`;
+  }
+
+  if (status === 'denied') {
+    return `<div style="display:flex;align-items:center;justify-content:space-between;
+      padding:8px 16px;background:var(--red-bg);border-bottom:1px solid #fecaca;font-size:12px;color:var(--red);">
+      <span>🔕 Notifications blocked</span>
+      <button onclick="showNotificationHelp()"
+        style="font-size:11px;padding:3px 8px;border:1px solid var(--red);border-radius:6px;
+        background:transparent;color:var(--red);cursor:pointer;font-family:'DM Sans',sans-serif;">
+        How to enable?
+      </button>
+    </div>`;
+  }
+
+  if (status === 'default') {
+    return `<div style="display:flex;align-items:center;justify-content:space-between;
+      padding:8px 16px;background:var(--amber-bg);border-bottom:1px solid #fde68a;font-size:12px;color:var(--amber);">
+      <span>🔔 Enable notifications?</span>
+      <button onclick="requestNotificationPermission()"
+        style="font-size:11px;padding:3px 8px;border:1px solid var(--amber);border-radius:6px;
+        background:transparent;color:var(--amber);cursor:pointer;font-family:'DM Sans',sans-serif;">
+        Enable
+      </button>
+    </div>`;
+  }
+  return '';
+}
+
+window.showNotificationHelp = () => {
+  document.getElementById('detailContent').innerHTML = `
+    <div class="modal-title">Enable Notifications</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+      Notifications were blocked. Follow these steps to re-enable:
+    </div>
+    <div class="detail-section" style="margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:10px;">Option 1 — From home screen:</div>
+      <div style="font-size:13px;color:var(--text2);line-height:2;">
+        1. Go to your <strong>home screen</strong><br>
+        2. <strong>Long press</strong> the DispatchPro icon<br>
+        3. Tap <strong>App Info</strong><br>
+        4. Tap <strong>Notifications</strong><br>
+        5. Turn on <strong>Allow Notifications</strong><br>
+        6. Come back and <strong>refresh</strong> the app
+      </div>
+    </div>
+    <div class="detail-section" style="margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:10px;">Option 2 — From phone settings:</div>
+      <div style="font-size:13px;color:var(--text2);line-height:2;">
+        1. Open <strong>Settings</strong> on your phone<br>
+        2. Go to <strong>Apps</strong><br>
+        3. Find and tap <strong>Chrome</strong><br>
+        4. Tap <strong>Notifications</strong><br>
+        5. Turn on <strong>Allow</strong>
+      </div>
+    </div>
+    <div style="background:var(--amber-bg);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--amber);">
+      💡 After enabling, refresh DispatchPro for notifications to work
+    </div>
+    <button class="btn-outline" style="width:100%;" onclick="closeDetail()">Close</button>`;
+  document.getElementById('detailModal').classList.add('open');
+};
 
 function playNotificationSound() {
   try {
@@ -1131,6 +1228,7 @@ window.doDateFilter = (d) => { filterDate = d; filterStatus = 'all'; searchQ = '
 function renderManagerNew() {
   const list = ordersCache.filter(o=>o.status==='new');
   return `
+    ${getNotificationBanner()}
     <div class="page-header"><div class="page-title">New Orders</div><div class="page-sub">${list.length} waiting</div></div>
     <div class="section-pad">
       ${list.length ? list.map(o=>`
@@ -1205,6 +1303,7 @@ function renderManagerDone() {
 function renderFloorToPack() {
   const list = ordersCache.filter(o=>o.status==='accepted').slice().sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
   return `
+    ${getNotificationBanner()}
     <div class="kiosk-header">
       <div class="kiosk-title">📦 Orders to Pack</div>
       <div class="kiosk-sub">${list.length} order${list.length!==1?'s':''} waiting</div>
