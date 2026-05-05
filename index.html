@@ -203,10 +203,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .kiosk-items{font-size:13px;color:var(--text2);margin-bottom:12px;}
 .kiosk-roll-input{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
 .kiosk-roll-input label{font-size:12px;font-weight:500;color:var(--text2);}
-.kiosk-roll-stepper{display:flex;align-items:center;gap:0;border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden;width:100%;}
-.kiosk-roll-btn{width:56px;height:52px;background:var(--bg3);border:none;font-size:22px;font-weight:400;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 0.1s;}
+.kiosk-roll-stepper{display:grid;grid-template-columns:56px 1fr 56px;align-items:center;border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden;width:100%;}
+.kiosk-roll-btn{height:52px;background:var(--bg3);border:none;font-size:24px;font-weight:300;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.1s;-webkit-tap-highlight-color:transparent;}
 .kiosk-roll-btn:active{background:var(--border2);}
-.kiosk-roll-num{flex:1;padding:8px 10px;border:none;border-left:1.5px solid var(--border);border-right:1.5px solid var(--border);background:var(--bg2);font-family:'DM Mono',monospace;font-size:22px;font-weight:600;text-align:center;outline:none;color:var(--text);}
+.kiosk-roll-num{width:100%;padding:8px 4px;border:none;border-left:1.5px solid var(--border);border-right:1.5px solid var(--border);background:var(--bg2);font-family:'DM Mono',monospace;font-size:22px;font-weight:600;text-align:center;outline:none;color:var(--text);-moz-appearance:textfield;}
+.kiosk-roll-num::-webkit-outer-spin-button,.kiosk-roll-num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .kiosk-btn{width:100%;padding:13px;background:var(--green);color:white;border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
 .kiosk-btn.accept{background:var(--blue);}
 .kiosk-btn:disabled{opacity:0.5;cursor:not-allowed;}
