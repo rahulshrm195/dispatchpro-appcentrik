@@ -361,9 +361,31 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.2.2';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.2.2',
+    date: '05 May 2026',
+    tag: 'Notifications',
+    changes: [
+      'Sound alert — plays when new order arrives for manager or floor team',
+      'Browser notification — shows when app is in background (permission required)',
+      'Manager notified when new orders are created by office',
+      'Floor team notified when orders are accepted by manager',
+      'Smart — plays sound when app is open, browser notification when in background',
+      'Works on Android Chrome reliably when app is open or recent',
+    ]
+  },
+  {
+    version: 'v1.2.1',
+    date: '05 May 2026',
+    tag: 'UX',
+    changes: [
+      'Floor team tab badges — To Pack and Mark Ready tabs now show count badges',
+      'Floor can see pending workload at a glance without tapping each tab',
+    ]
+  },
   {
     version: 'v1.2.0',
     date: '05 May 2026',
@@ -668,6 +690,12 @@ function getManagerTabBadges() {
     3: 0 // Done tab — no badge needed
   };
 }
+function getFloorTabBadges() {
+  return {
+    0: ordersCache.filter(o=>o.status==='accepted').length,  // To Pack
+    1: ordersCache.filter(o=>o.status==='prep').length        // Mark Ready
+  };
+}
 function updateTopBadge() {
   const n = getOrdersBadgeCount();
   const el = document.getElementById('topbarBadge');
@@ -717,6 +745,59 @@ function showApp() {
   const tenantEl = document.getElementById('topbarTenant');
   if (tenantEl && currentProfile.tenantName) tenantEl.textContent = currentProfile.tenantName;
   setupApp();
+  // Request notification permission for manager and floor
+  if (['manager','floor'].includes(currentProfile.role)) {
+    requestNotificationPermission();
+  }
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function sendNotification(title, body, icon) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  // Only notify if app is in background/not focused
+  if (document.visibilityState === 'visible') {
+    // App is open — play sound instead
+    playNotificationSound();
+    return;
+  }
+  try {
+    new Notification(title, {
+      body,
+      icon: icon || '/icons/icon-192.png',
+      badge: '/icons/icon-96.png',
+      tag: 'dispatchpro-alert',
+      renotify: true
+    });
+    playNotificationSound();
+  } catch(e) {
+    // Silent fail
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(800, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
+    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.4);
+  } catch(e) {
+    // Silent fail if audio not supported
+  }
 }
 
 async function doLogin() {
@@ -822,7 +903,7 @@ function setupApp() {
       <span class="tab-icon">${t.icon}</span>
       <span>${t.label}</span>
       ${(role==='manager'&&i<3)?`<span class="tab-badge" id="tabBadge-${i}"></span>`:''}
-      ${(role==='floor'&&i===0)?`<span class="tab-badge" id="tabBadge"></span>`:''}
+      ${(role==='floor'&&i<2)?`<span class="tab-badge" id="floorBadge-${i}"></span>`:''}
     </div>`).join('');
 
   currentTab = 0;
@@ -845,9 +926,6 @@ function renderTab(i) {
 function refreshCurrentTab() {
   renderTab(currentTab);
   updateTopBadge();
-  // Floor — single badge
-  const tb = document.getElementById('tabBadge');
-  if (tb) { const n = getOrdersBadgeCount(); tb.textContent = n > 0 ? n : ''; }
   // Manager — badge on each tab
   if (currentProfile?.role === 'manager') {
     const badges = getManagerTabBadges();
@@ -855,7 +933,14 @@ function refreshCurrentTab() {
       const el = document.getElementById('tabBadge-' + i);
       if (el) el.textContent = count > 0 ? count : '';
     });
-    // Top bar badge = total active (new only for topbar)
+  }
+  // Floor — badge on both tabs
+  if (currentProfile?.role === 'floor') {
+    const badges = getFloorTabBadges();
+    Object.entries(badges).forEach(([i, count]) => {
+      const el = document.getElementById('floorBadge-' + i);
+      if (el) el.textContent = count > 0 ? count : '';
+    });
   }
 }
 
@@ -870,8 +955,38 @@ function subscribeOrders() {
     collection(db, 'tenants', currentTenantId, 'orders'),
     orderBy('createdAt', sortDir)
   );
+  let isFirstLoad = true;
+  let prevNewCount = 0;
+  let prevAcceptedCount = 0;
   unsubOrders = onSnapshot(q, snap => {
-    ordersCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const newCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!isFirstLoad && currentProfile) {
+      const newCount = newCache.filter(o=>o.status==='new').length;
+      const acceptedCount = newCache.filter(o=>o.status==='accepted').length;
+      // Notify manager when new order arrives
+      if (currentProfile.role === 'manager' && newCount > prevNewCount) {
+        const diff = newCount - prevNewCount;
+        sendNotification(
+          `${diff} New Order${diff>1?'s':''}!`,
+          `You have ${newCount} order${newCount>1?'s':''} waiting to be accepted.`
+        );
+      }
+      // Notify floor when order is accepted
+      if (currentProfile.role === 'floor' && acceptedCount > prevAcceptedCount) {
+        const diff = acceptedCount - prevAcceptedCount;
+        sendNotification(
+          `${diff} Order${diff>1?'s':''} Ready to Pack!`,
+          `${acceptedCount} order${acceptedCount>1?'s':''} waiting in your queue.`
+        );
+      }
+      prevNewCount = newCount;
+      prevAcceptedCount = acceptedCount;
+    } else {
+      prevNewCount = newCache.filter(o=>o.status==='new').length;
+      prevAcceptedCount = newCache.filter(o=>o.status==='accepted').length;
+      isFirstLoad = false;
+    }
+    ordersCache = newCache;
     refreshCurrentTab();
   });
 }
