@@ -27,6 +27,7 @@
 
 <title>DispatchPro</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 :root {
   --bg:#f8f7f4;--bg2:#ffffff;--bg3:#f0ede8;
@@ -364,9 +365,25 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.2.5';
+const APP_VERSION = 'v1.3.0';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.0',
+    date: '05 May 2026',
+    tag: 'Reports',
+    changes: [
+      'Reports section added — admin only, 6th tab',
+      'Date range picker — select any from/to date, defaults to last 7 days',
+      'Summary stats — total orders, total sheets, dispatched count, avg dispatch time',
+      'Orders per day bar chart — powered by Chart.js',
+      'Sheets per day bar chart — see volume trends clearly',
+      'Top 5 customers by order count',
+      'Top 5 customers by sheet volume',
+      'Order source doughnut chart — Call vs WhatsApp breakdown',
+      'Staff performance — orders created per team member',
+    ]
+  },
   {
     version: 'v1.2.5',
     date: '05 May 2026',
@@ -989,6 +1006,7 @@ function setupApp() {
       { icon:'📋', label:'Orders', view: renderAdminOrders },
       { icon:'👥', label:'Customers', view: renderCustomers },
       { icon:'👤', label:'Users', view: renderUsers },
+      { icon:'📈', label:'Reports', view: renderReports },
     ];
     subscribeOrders(); subscribeCustomers(); loadUsers(); subscribeLaminates();
   } else if (role === 'office') {
@@ -1515,6 +1533,189 @@ function renderUsers() {
 
 // ─── CUSTOMERS VIEW ───────────────────────────────────────────────────────────
 let custSearchQ = '';
+let reportFromDate = '';
+let reportToDate = '';
+let reportCharts = {};
+
+// ─── REPORTS VIEW ─────────────────────────────────────────────────────────────
+function initReportDates() {
+  if (!reportFromDate || !reportToDate) {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 6);
+    reportToDate = getTodayStr();
+    reportFromDate = `${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+  }
+}
+
+function getOrdersInRange() {
+  const from = new Date(reportFromDate + 'T00:00:00');
+  const to = new Date(reportToDate + 'T23:59:59');
+  return ordersCache.filter(o => {
+    if (!o.createdAt) return false;
+    const d = new Date(o.createdAt.toMillis ? o.createdAt.toMillis() : o.createdAt);
+    return d >= from && d <= to;
+  });
+}
+
+function getDatesInRange() {
+  const dates = [];
+  const from = new Date(reportFromDate + 'T00:00:00');
+  const to = new Date(reportToDate + 'T00:00:00');
+  const cur = new Date(from);
+  while (cur <= to) {
+    dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function formatDateShort(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]}`;
+}
+
+function renderReports() {
+  initReportDates();
+  const orders = getOrdersInRange();
+  const dates = getDatesInRange();
+  const activeOrders = orders.filter(o => o.status !== 'cancelled');
+  const totalOrders = activeOrders.length;
+  const totalSheets = activeOrders.reduce((a,o) => a + (o.items||[]).reduce((b,i) => b + Number(i.qty), 0), 0);
+  const totalDispatched = orders.filter(o => o.status === 'dispatched').length;
+  const totalCancelled = orders.filter(o => o.status === 'cancelled').length;
+  const dispTimes = orders.filter(o => o.status === 'dispatched' && o.dispatchedAt && o.createdAt)
+    .map(o => (o.dispatchedAt.toMillis() - o.createdAt.toMillis()) / 3600000);
+  const avgDispatch = dispTimes.length ? (dispTimes.reduce((a,b) => a+b, 0) / dispTimes.length).toFixed(1) : '--';
+
+  const ordersPerDay = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d)).length);
+  const sheetsPerDay = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d))
+    .reduce((a,o) => a + (o.items||[]).reduce((b,i) => b + Number(i.qty), 0), 0));
+
+  const custOrders = {}, custSheets = {};
+  activeOrders.forEach(o => {
+    const name = o.customer?.name || 'Unknown';
+    custOrders[name] = (custOrders[name] || 0) + 1;
+    custSheets[name] = (custSheets[name] || 0) + (o.items||[]).reduce((a,i) => a + Number(i.qty), 0);
+  });
+  const top5Orders = Object.entries(custOrders).sort((a,b) => b[1]-a[1]).slice(0,5);
+  const top5Sheets = Object.entries(custSheets).sort((a,b) => b[1]-a[1]).slice(0,5);
+  const maxTop5Orders = top5Orders.length ? top5Orders[0][1] : 1;
+  const maxTop5Sheets = top5Sheets.length ? top5Sheets[0][1] : 1;
+
+  const srcCall = activeOrders.filter(o => o.source === 'Call').length;
+  const srcWA = activeOrders.filter(o => o.source === 'WhatsApp').length;
+
+  const staffOrders = {};
+  orders.forEach(o => { const n = o.createdBy || 'Unknown'; staffOrders[n] = (staffOrders[n]||0) + 1; });
+
+  setTimeout(() => {
+    Object.values(reportCharts).forEach(c => { try { c.destroy(); } catch(e){} });
+    reportCharts = {};
+    const chartDefaults = {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+    };
+    const ctx1 = document.getElementById('chartOrders');
+    if (ctx1) reportCharts.orders = new Chart(ctx1, {
+      type: 'bar',
+      data: { labels: dates.map(formatDateShort), datasets: [{ data: ordersPerDay, backgroundColor: '#0f172a', borderRadius: 4 }] },
+      options: { ...chartDefaults, scales: { y: { beginAtZero:true, ticks:{stepSize:1}, grid:{color:'#f0ede8'} }, x: { grid:{display:false}, ticks:{font:{size:10}} } } }
+    });
+    const ctx2 = document.getElementById('chartSheets');
+    if (ctx2) reportCharts.sheets = new Chart(ctx2, {
+      type: 'bar',
+      data: { labels: dates.map(formatDateShort), datasets: [{ data: sheetsPerDay, backgroundColor: '#2563eb', borderRadius: 4 }] },
+      options: { ...chartDefaults, scales: { y: { beginAtZero:true, grid:{color:'#f0ede8'} }, x: { grid:{display:false}, ticks:{font:{size:10}} } } }
+    });
+    const ctx3 = document.getElementById('chartSource');
+    if (ctx3 && (srcCall+srcWA) > 0) {
+      reportCharts.source = new Chart(ctx3, {
+        type: 'doughnut',
+        data: { labels: ['Call','WhatsApp'], datasets: [{ data: [srcCall,srcWA], backgroundColor: ['#2563eb','#16a34a'], borderWidth: 0 }] },
+        options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ font:{size:11}, padding:12 } } }, cutout:'65%' }
+      });
+    }
+  }, 100);
+
+  return `
+    <div class="page-header">
+      <div><div class="page-title">Reports</div><div class="page-sub">${formatDateDisplay(reportFromDate)} — ${formatDateDisplay(reportToDate)}</div></div>
+    </div>
+    <div style="padding:0 16px 12px;display:flex;gap:8px;align-items:flex-end;">
+      <div style="flex:1;">
+        <div style="font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">From</div>
+        <input type="date" value="${reportFromDate}" max="${reportToDate}"
+          onchange="reportFromDate=this.value;refreshCurrentTab()"
+          style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">To</div>
+        <input type="date" value="${reportToDate}" max="${getTodayStr()}"
+          onchange="reportToDate=this.value;refreshCurrentTab()"
+          style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+      </div>
+      <button onclick="reportFromDate='';reportToDate='';initReportDates();refreshCurrentTab()"
+        style="padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;height:38px;">
+        Last 7d
+      </button>
+    </div>
+    <div class="section-pad">
+      <div class="sec-label">Summary</div>
+      <div class="stat-grid" style="margin-bottom:14px;">
+        <div class="stat-card"><div class="stat-val">${totalOrders}</div><div class="stat-label">Total orders</div></div>
+        <div class="stat-card"><div class="stat-val">${totalSheets}</div><div class="stat-label">Total sheets</div></div>
+        <div class="stat-card"><div class="stat-val">${totalDispatched}</div><div class="stat-label">Dispatched</div></div>
+        <div class="stat-card"><div class="stat-val">${avgDispatch}h</div><div class="stat-label">Avg dispatch</div></div>
+      </div>
+      ${totalCancelled > 0 ? `<div style="font-size:12px;color:var(--red);background:var(--red-bg);padding:8px 12px;border-radius:var(--radius);margin-bottom:14px;">⚠ ${totalCancelled} order${totalCancelled!==1?'s':''} cancelled in this period</div>` : ''}
+
+      <div class="sec-label">Orders Per Day</div>
+      <div class="detail-section" style="margin-bottom:14px;"><div style="height:160px;"><canvas id="chartOrders"></canvas></div></div>
+
+      <div class="sec-label">Sheets Per Day</div>
+      <div class="detail-section" style="margin-bottom:14px;"><div style="height:160px;"><canvas id="chartSheets"></canvas></div></div>
+
+      <div class="sec-label">Top 5 Customers — Orders</div>
+      <div class="detail-section" style="margin-bottom:14px;">
+        ${top5Orders.length ? top5Orders.map(([name,count]) => `
+          <div class="chart-row" style="margin-bottom:8px;">
+            <div style="font-size:12px;color:var(--text);width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+            <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${Math.round(count/maxTop5Orders*100)}%"></div></div>
+            <div class="chart-val">${count}</div>
+          </div>`).join('') : `<div style="font-size:13px;color:var(--text2);padding:8px 0;">No data</div>`}
+      </div>
+
+      <div class="sec-label">Top 5 Customers — Sheets</div>
+      <div class="detail-section" style="margin-bottom:14px;">
+        ${top5Sheets.length ? top5Sheets.map(([name,count]) => `
+          <div class="chart-row" style="margin-bottom:8px;">
+            <div style="font-size:12px;color:var(--text);width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+            <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${Math.round(count/maxTop5Sheets*100)}%;background:var(--blue);"></div></div>
+            <div class="chart-val">${count}</div>
+          </div>`).join('') : `<div style="font-size:13px;color:var(--text2);padding:8px 0;">No data</div>`}
+      </div>
+
+      <div class="sec-label">Order Source</div>
+      <div class="detail-section" style="margin-bottom:14px;">
+        ${(srcCall+srcWA) > 0 ? `
+          <div style="height:180px;"><canvas id="chartSource"></canvas></div>
+          <div style="display:flex;justify-content:space-around;margin-top:12px;">
+            <div style="text-align:center;"><div style="font-size:20px;font-weight:600;color:var(--blue);">${srcCall}</div><div style="font-size:11px;color:var(--text2);">📞 Call</div></div>
+            <div style="text-align:center;"><div style="font-size:20px;font-weight:600;color:var(--green);">${srcWA}</div><div style="font-size:11px;color:var(--text2);">💬 WhatsApp</div></div>
+          </div>` : `<div style="font-size:13px;color:var(--text2);padding:8px 0;">No data</div>`}
+      </div>
+
+      <div class="sec-label">Orders by Staff</div>
+      <div class="detail-section" style="margin-bottom:24px;">
+        ${Object.entries(staffOrders).sort((a,b)=>b[1]-a[1]).map(([name,count]) => `
+          <div class="detail-row">
+            <span class="detail-key">${name}</span>
+            <span class="detail-val">${count} order${count!==1?'s':''}</span>
+          </div>`).join('') || `<div style="font-size:13px;color:var(--text2);padding:8px 0;">No data</div>`}
+      </div>
+    </div>`;
+}
 
 function renderCustomers() {
   const filtered = customersCache.filter(c =>
