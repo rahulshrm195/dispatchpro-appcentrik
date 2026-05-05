@@ -997,7 +997,7 @@ function setupApp() {
       { icon:'👥', label:'Customers', view: renderCustomers },
       { icon:'➕', label:'New Order', action: openNewOrder }
     ];
-    subscribeOrders(); subscribeCustomers();
+    subscribeOrders(); subscribeCustomers(); subscribeLaminates();
   } else if (role === 'manager') {
     tabs = [
       { icon:'🔔', label:'New', view: renderManagerNew },
@@ -1119,9 +1119,15 @@ function subscribeCustomers() {
 }
 
 function subscribeLaminates() {
-  const q = query(collection(db, 'tenants', currentTenantId, 'laminates'), orderBy('name'));
+  // No orderBy — avoids index requirement, sorts locally
+  const q = collection(db, 'tenants', currentTenantId, 'laminates');
   onSnapshot(q, snap => {
-    laminatesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    laminatesCache = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, err => {
+    // Silent fail — autocomplete just won't work, no crash
+    console.log('Laminates load error:', err.message);
   });
 }
 
