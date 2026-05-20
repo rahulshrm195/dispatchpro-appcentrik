@@ -365,9 +365,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.1';
+const APP_VERSION = 'v1.3.2';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.2',
+    date: '20 May 2026',
+    tag: 'Reports',
+    changes: [
+      'Smart chart grouping — daily for up to 30 days, monthly beyond that',
+      'No more tiny unreadable bars on large date ranges',
+      'Chart label shows Daily or Monthly so user knows the grouping',
+      'Chart height increased slightly for better readability',
+    ]
+  },
   {
     version: 'v1.3.1',
     date: '19 May 2026',
@@ -1623,9 +1634,46 @@ function renderReports() {
   const avgDispatch = dispTimes.length ? (dispTimes.reduce((a,b) => a+b, 0) / dispTimes.length).toFixed(1) : '--';
   const avgSheetsPerOrder = totalOrders > 0 ? (totalSheets / totalOrders).toFixed(1) : '--';
 
-  const ordersPerDay = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d)).length);
-  const sheetsPerDay = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d))
-    .reduce((a,o) => a + (o.items||[]).reduce((b,i) => b + Number(i.qty), 0), 0));
+  // Smart grouping — daily up to 30 days, monthly beyond
+  const dayCount = dates.length;
+  let chartLabels = [];
+  let chartOrders = [];
+  let chartSheets = [];
+  let chartSubtitle = '';
+
+  if (dayCount <= 30) {
+    // Daily bars
+    chartLabels = dates.map(formatDateShort);
+    chartOrders = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d)).length);
+    chartSheets = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d))
+      .reduce((a,o) => a + (o.items||[]).reduce((b,i) => b + Number(i.qty), 0), 0));
+    chartSubtitle = 'Daily';
+  } else {
+    // Monthly bars — group by month
+    const monthMap = {};
+    activeOrders.forEach(o => {
+      if (!o.createdAt) return;
+      const d = new Date(o.createdAt.toMillis ? o.createdAt.toMillis() : o.createdAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      if (!monthMap[key]) monthMap[key] = { orders: 0, sheets: 0 };
+      monthMap[key].orders++;
+      monthMap[key].sheets += (o.items||[]).reduce((a,i) => a + Number(i.qty), 0);
+    });
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    // Fill in all months in range even if 0
+    const from = new Date(reportFromDate + 'T00:00:00');
+    const to = new Date(reportToDate + 'T00:00:00');
+    const cur = new Date(from.getFullYear(), from.getMonth(), 1);
+    while (cur <= to) {
+      const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+      const label = `${months[cur.getMonth()]} ${cur.getFullYear()}`;
+      chartLabels.push(label);
+      chartOrders.push(monthMap[key]?.orders || 0);
+      chartSheets.push(monthMap[key]?.sheets || 0);
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    chartSubtitle = 'Monthly';
+  }
 
   const custOrders = {}, custSheets = {};
   activeOrders.forEach(o => {
@@ -1654,14 +1702,14 @@ function renderReports() {
     const ctx1 = document.getElementById('chartOrders');
     if (ctx1) reportCharts.orders = new Chart(ctx1, {
       type: 'bar',
-      data: { labels: dates.map(formatDateShort), datasets: [{ data: ordersPerDay, backgroundColor: '#0f172a', borderRadius: 4 }] },
-      options: { ...chartDefaults, scales: { y: { beginAtZero:true, ticks:{stepSize:1}, grid:{color:'#f0ede8'} }, x: { grid:{display:false}, ticks:{font:{size:10}} } } }
+      data: { labels: chartLabels, datasets: [{ data: chartOrders, backgroundColor: '#0f172a', borderRadius: 4 }] },
+      options: { ...chartDefaults, scales: { y: { beginAtZero:true, ticks:{stepSize:1}, grid:{color:'#f0ede8'} }, x: { grid:{display:false}, ticks:{font:{size:10}, maxRotation:45} } } }
     });
     const ctx2 = document.getElementById('chartSheets');
     if (ctx2) reportCharts.sheets = new Chart(ctx2, {
       type: 'bar',
-      data: { labels: dates.map(formatDateShort), datasets: [{ data: sheetsPerDay, backgroundColor: '#2563eb', borderRadius: 4 }] },
-      options: { ...chartDefaults, scales: { y: { beginAtZero:true, grid:{color:'#f0ede8'} }, x: { grid:{display:false}, ticks:{font:{size:10}} } } }
+      data: { labels: chartLabels, datasets: [{ data: chartSheets, backgroundColor: '#2563eb', borderRadius: 4 }] },
+      options: { ...chartDefaults, scales: { y: { beginAtZero:true, grid:{color:'#f0ede8'} }, x: { grid:{display:false}, ticks:{font:{size:10}, maxRotation:45} } } }
     });
     const ctx3 = document.getElementById('chartSource');
     if (ctx3 && (srcCall+srcWA) > 0) {
@@ -1723,11 +1771,11 @@ function renderReports() {
       </div>
       ${totalCancelled > 0 ? `<div style="font-size:12px;color:var(--red);background:var(--red-bg);padding:8px 12px;border-radius:var(--radius);margin-bottom:14px;">⚠ ${totalCancelled} order${totalCancelled!==1?'s':''} cancelled in this period</div>` : ''}
 
-      <div class="sec-label">Orders Per Day</div>
-      <div class="detail-section" style="margin-bottom:14px;"><div style="height:160px;"><canvas id="chartOrders"></canvas></div></div>
+      <div class="sec-label">Orders — ${chartSubtitle}</div>
+      <div class="detail-section" style="margin-bottom:14px;"><div style="height:180px;"><canvas id="chartOrders"></canvas></div></div>
 
-      <div class="sec-label">Sheets Per Day</div>
-      <div class="detail-section" style="margin-bottom:14px;"><div style="height:160px;"><canvas id="chartSheets"></canvas></div></div>
+      <div class="sec-label">Sheets — ${chartSubtitle}</div>
+      <div class="detail-section" style="margin-bottom:14px;"><div style="height:180px;"><canvas id="chartSheets"></canvas></div></div>
 
       <div class="sec-label">Top 5 Customers — Orders</div>
       <div class="detail-section" style="margin-bottom:14px;">
