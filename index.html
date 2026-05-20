@@ -365,9 +365,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.0';
+const APP_VERSION = 'v1.3.1';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.1',
+    date: '19 May 2026',
+    tag: 'Reports',
+    changes: [
+      'Apply button on report date range — no more accidental refresh while selecting dates',
+      'From and To dates now applied together on tap of Apply',
+      'Added: Avg sheets per order stat in Reports summary',
+      'Last 7d quick reset button preserved',
+    ]
+  },
   {
     version: 'v1.3.0',
     date: '05 May 2026',
@@ -1535,6 +1546,8 @@ function renderUsers() {
 let custSearchQ = '';
 let reportFromDate = '';
 let reportToDate = '';
+let reportPendingFrom = '';
+let reportPendingTo = '';
 let reportCharts = {};
 
 // ─── REPORTS VIEW ─────────────────────────────────────────────────────────────
@@ -1545,8 +1558,29 @@ function initReportDates() {
     from.setDate(from.getDate() - 6);
     reportToDate = getTodayStr();
     reportFromDate = `${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+    reportPendingFrom = reportFromDate;
+    reportPendingTo = reportToDate;
   }
 }
+
+window.applyReportDates = () => {
+  const from = document.getElementById('rpt-from')?.value || reportPendingFrom;
+  const to = document.getElementById('rpt-to')?.value || reportPendingTo;
+  if (!from || !to) { showToast('Select both dates'); return; }
+  if (from > to) { showToast('From date must be before To date'); return; }
+  reportFromDate = from;
+  reportToDate = to;
+  reportPendingFrom = from;
+  reportPendingTo = to;
+  refreshCurrentTab();
+};
+
+window.resetReportDates = () => {
+  reportFromDate = '';
+  reportToDate = '';
+  initReportDates();
+  refreshCurrentTab();
+};
 
 function getOrdersInRange() {
   const from = new Date(reportFromDate + 'T00:00:00');
@@ -1587,6 +1621,7 @@ function renderReports() {
   const dispTimes = orders.filter(o => o.status === 'dispatched' && o.dispatchedAt && o.createdAt)
     .map(o => (o.dispatchedAt.toMillis() - o.createdAt.toMillis()) / 3600000);
   const avgDispatch = dispTimes.length ? (dispTimes.reduce((a,b) => a+b, 0) / dispTimes.length).toFixed(1) : '--';
+  const avgSheetsPerOrder = totalOrders > 0 ? (totalSheets / totalOrders).toFixed(1) : '--';
 
   const ordersPerDay = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d)).length);
   const sheetsPerDay = dates.map(d => activeOrders.filter(o => isSameDate(o.createdAt, d))
@@ -1642,31 +1677,49 @@ function renderReports() {
     <div class="page-header">
       <div><div class="page-title">Reports</div><div class="page-sub">${formatDateDisplay(reportFromDate)} — ${formatDateDisplay(reportToDate)}</div></div>
     </div>
-    <div style="padding:0 16px 12px;display:flex;gap:8px;align-items:flex-end;">
-      <div style="flex:1;">
-        <div style="font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">From</div>
-        <input type="date" value="${reportFromDate}" max="${reportToDate}"
-          onchange="reportFromDate=this.value;refreshCurrentTab()"
-          style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+    <div style="padding:0 16px 12px;">
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;">
+        <div style="flex:1;">
+          <div style="font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">From</div>
+          <input type="date" id="rpt-from" value="${reportFromDate}" max="${getTodayStr()}"
+            onchange="reportPendingFrom=this.value"
+            style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+        </div>
+        <div style="flex:1;">
+          <div style="font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">To</div>
+          <input type="date" id="rpt-to" value="${reportToDate}" max="${getTodayStr()}"
+            onchange="reportPendingTo=this.value"
+            style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+        </div>
       </div>
-      <div style="flex:1;">
-        <div style="font-size:10px;color:var(--text2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">To</div>
-        <input type="date" value="${reportToDate}" max="${getTodayStr()}"
-          onchange="reportToDate=this.value;refreshCurrentTab()"
-          style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);outline:none;"/>
+      <div style="display:flex;gap:8px;">
+        <button onclick="applyReportDates()"
+          style="flex:2;padding:10px;background:var(--accent);border:none;border-radius:var(--radius);
+          font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:white;cursor:pointer;">
+          Apply
+        </button>
+        <button onclick="resetReportDates()"
+          style="flex:1;padding:10px;border:1.5px solid var(--border);border-radius:var(--radius);
+          background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text2);cursor:pointer;">
+          Last 7d
+        </button>
       </div>
-      <button onclick="reportFromDate='';reportToDate='';initReportDates();refreshCurrentTab()"
-        style="padding:8px 12px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;height:38px;">
-        Last 7d
-      </button>
     </div>
     <div class="section-pad">
       <div class="sec-label">Summary</div>
-      <div class="stat-grid" style="margin-bottom:14px;">
+      <div class="stat-grid" style="margin-bottom:10px;">
         <div class="stat-card"><div class="stat-val">${totalOrders}</div><div class="stat-label">Total orders</div></div>
         <div class="stat-card"><div class="stat-val">${totalSheets}</div><div class="stat-label">Total sheets</div></div>
         <div class="stat-card"><div class="stat-val">${totalDispatched}</div><div class="stat-label">Dispatched</div></div>
         <div class="stat-card"><div class="stat-val">${avgDispatch}h</div><div class="stat-label">Avg dispatch</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div class="stat-card" style="grid-column:span 2;">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div><div class="stat-val">${avgSheetsPerOrder}</div><div class="stat-label">Avg sheets per order</div></div>
+            <div style="font-size:28px;opacity:0.15;">📊</div>
+          </div>
+        </div>
       </div>
       ${totalCancelled > 0 ? `<div style="font-size:12px;color:var(--red);background:var(--red-bg);padding:8px 12px;border-radius:var(--radius);margin-bottom:14px;">⚠ ${totalCancelled} order${totalCancelled!==1?'s':''} cancelled in this period</div>` : ''}
 
