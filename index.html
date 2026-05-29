@@ -365,9 +365,22 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.3';
+const APP_VERSION = 'v1.3.4';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.4',
+    date: '29 May 2026',
+    tag: 'Operations',
+    changes: [
+      'Site separator — add a roll break between laminate items during order creation',
+      'Auto-numbered Roll 1, Site 2, Site 3 etc. — one tap, no typing',
+      'Separator shown in floor To Pack, Mark Ready and order detail views',
+      'Sheet totals correctly exclude separator rows',
+      'Smart reorder preserves site separators when recreating cancelled orders',
+      'Packing stage completely unchanged',
+    ]
+  },
   {
     version: 'v1.3.3',
     date: '29 May 2026',
@@ -660,7 +673,7 @@ let usersCache = [];
 let tenantsCache = [];
 let unsubOrders = null;
 let unsubCustomers = null;
-let newOrderItems = [{ laminate: '', qty: '' }];
+let newOrderItems = [{ laminate: '', qty: '', type: 'item' }];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function getFY() {
@@ -1226,10 +1239,11 @@ async function loadTenants() {
 
 // ─── ORDER CARD HTML ──────────────────────────────────────────────────────────
 function orderCardHtml(o, showAge) {
-  const totalSheets = (o.items||[]).reduce((a,i)=>a+Number(i.qty),0);
-  const itemsSummary = !o.items?.length ? 'No items'
-    : o.items.length === 1 ? `${o.items[0].laminate} — ${o.items[0].qty} sheets`
-    : `${o.items.length} items — ${totalSheets} sheets total`;
+  const realItems = (o.items||[]).filter(i=>i.type!=='separator');
+  const totalSheets = realItems.reduce((a,i)=>a+Number(i.qty),0);
+  const itemsSummary = !realItems.length ? 'No items'
+    : realItems.length === 1 ? `${realItems[0].laminate} — ${realItems[0].qty} sheets`
+    : `${realItems.length} items — ${totalSheets} sheets total`;
   return `
     <div class="order-card" onclick="openDetail('${o.id}')">
       <div class="oc-top">
@@ -1414,13 +1428,17 @@ function renderFloorPacked() {
     </div>
     <div style="padding:14px;">
       ${list.length ? list.map(o=>{
-        const totalSheets = (o.items||[]).reduce((a,i)=>a+Number(i.qty),0);
+        const totalSheets = (o.items||[]).filter(i=>i.type!=='separator').reduce((a,i)=>a+Number(i.qty),0);
         const suggested = Math.ceil(totalSheets/9);
         return `<div class="kiosk-card">
           <div class="kiosk-card-id">${o.orderId||o.id}</div>
           <div class="kiosk-card-cust">${o.customer?.name||'—'}</div>
           <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px;">
-            ${(o.items||[]).map((i,idx)=>'<div style="display:flex;align-items:center;padding:10px 14px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:16px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>').join('')}
+            ${(o.items||[]).filter(i=>i.type!=='separator').length===0?'':
+              (()=>{let idx=0;return (o.items||[]).map(i=>{
+                if(i.type==='separator') return '<div style="display:flex;align-items:center;gap:6px;padding:4px 14px;background:var(--bg3);border-top:1px solid var(--border);"><div style="flex:1;height:1px;background:var(--border2);"></div><span style="font-size:10px;font-weight:600;color:var(--text2);padding:2px 8px;background:var(--bg2);border:1px solid var(--border2);border-radius:20px;">'+i.label+'</span><div style="flex:1;height:1px;background:var(--border2);"></div></div>';
+                const row='<div style="display:flex;align-items:center;padding:10px 14px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:16px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>';
+                idx++;return row;}).join('');})()}
             <div style="padding:8px 14px;background:var(--bg3);border-top:1px solid var(--border);"><span style="font-size:14px;font-weight:600;color:var(--text);">Total: ${totalSheets} sheets</span></div>
           </div>
           <div class="kiosk-roll-input">
@@ -1931,7 +1949,9 @@ window.openDetail = (id) => {
     </div>
     <div class="detail-section" style="margin-bottom:10px;">
       <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Items (${totalSheets} sheets)</div>
-      ${(o.items||[]).map(i=>`<div class="detail-row"><span class="detail-key" style="max-width:65%;">${i.laminate}</span><span class="detail-val">${i.qty} sheets</span></div>`).join('')}
+      ${(o.items||[]).map(i=>i.type==='separator'
+        ? `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;"><div style="flex:1;height:1px;background:var(--border2);"></div><span style="font-size:10px;font-weight:600;color:var(--text2);padding:2px 8px;background:var(--bg3);border-radius:20px;">📦 ${i.label}</span><div style="flex:1;height:1px;background:var(--border2);"></div></div>`
+        : `<div class="detail-row"><span class="detail-key" style="max-width:65%;">${i.laminate}</span><span class="detail-val">${i.qty} sheets</span></div>`).join('')}
     </div>
     ${o.notes?.length?`<div class="detail-section" style="margin-bottom:10px;">
       <div style="font-size:11px;font-weight:500;color:var(--text2);margin-bottom:8px;text-transform:uppercase;">Notes</div>
@@ -2026,8 +2046,10 @@ window.confirmCancelOrder = async (id) => {
 };
 
 window.openSmartReorder = (o) => {
-  newOrderItems = (o.items||[]).map(i=>({ laminate:i.laminate, qty:String(i.qty) }));
-  if (!newOrderItems.length) newOrderItems = [{ laminate:'', qty:'' }];
+  newOrderItems = (o.items||[]).map(i=>i.type==='separator'
+    ? { type:'separator', label:i.label }
+    : { laminate:i.laminate, qty:String(i.qty), type:'item' });
+  if (!newOrderItems.filter(i=>i.type!=='separator').length) newOrderItems = [{ laminate:'', qty:'', type:'item' }];
   document.getElementById('formContent').innerHTML = buildNewOrderForm();
   // Pre-select customer
   setTimeout(() => {
@@ -2180,7 +2202,10 @@ function buildNewOrderForm() {
     <div class="form-group">
       <label class="form-label">Laminate Items</label>
       <div id="itemsList">${newOrderItems.map((_,i)=>buildItemRow(i)).join('')}</div>
-      <button class="add-item-btn" onclick="addItem()">+ Add another laminate</button>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button class="add-item-btn" style="flex:2;" onclick="addItem()">+ Add laminate</button>
+        <button class="add-item-btn" style="flex:1;border-color:var(--purple);color:var(--purple);" onclick="addRollBreak()">📦 New Site</button>
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Notes (optional)</label>
@@ -2192,7 +2217,26 @@ function buildNewOrderForm() {
     </div>`;
 }
 
+function getRollNumber(upToIndex) {
+  // Count how many separators exist before this index — that's the roll number
+  return newOrderItems.slice(0, upToIndex).filter(x => x.type === 'separator').length + 1;
+}
+
 function buildItemRow(i) {
+  const item = newOrderItems[i];
+  // Separator row
+  if (item.type === 'separator') {
+    return `<div id="item-row-${i}" style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+      <div style="flex:1;height:1px;background:var(--border2);"></div>
+      <span style="font-size:11px;font-weight:600;color:var(--text2);white-space:nowrap;padding:3px 10px;
+        background:var(--bg3);border:1px solid var(--border2);border-radius:20px;">
+        📦 ${item.label}
+      </span>
+      <div style="flex:1;height:1px;background:var(--border2);"></div>
+      <button class="item-del" onclick="removeItem(${i})" style="background:var(--bg3);border-color:var(--border2);color:var(--text2);">✕</button>
+    </div>`;
+  }
+  // Normal item row
   return `<div class="item-row" id="item-row-${i}">
     <div class="lam-wrap">
       <input class="form-input" style="width:100%;margin-bottom:0;" placeholder="Laminate name / code"
@@ -2255,7 +2299,8 @@ async function isPhoneTaken(phone) {
 }
 
 function syncItemsFromDOM() {
-  newOrderItems.forEach((_, i) => {
+  newOrderItems.forEach((item, i) => {
+    if (item.type === 'separator') return; // skip separators
     const lamEl = document.getElementById('item-lam-' + i);
     const qtyEl = document.getElementById('item-qty-' + i);
     if (lamEl) newOrderItems[i].laminate = lamEl.value;
@@ -2264,12 +2309,25 @@ function syncItemsFromDOM() {
 }
 window.addItem = () => {
   syncItemsFromDOM();
-  newOrderItems.push({ laminate:'', qty:'' });
+  newOrderItems.push({ laminate:'', qty:'', type:'item' });
+  document.getElementById('itemsList').innerHTML = newOrderItems.map((_,i)=>buildItemRow(i)).join('');
+};
+window.addRollBreak = () => {
+  syncItemsFromDOM();
+  // Count existing separators to auto-label next roll
+  const rollNum = newOrderItems.filter(x=>x.type==='separator').length + 2;
+  newOrderItems.push({ type:'separator', label:'Site ' + rollNum });
+  newOrderItems.push({ laminate:'', qty:'', type:'item' });
   document.getElementById('itemsList').innerHTML = newOrderItems.map((_,i)=>buildItemRow(i)).join('');
 };
 window.removeItem = (i) => {
   syncItemsFromDOM();
   newOrderItems.splice(i,1);
+  // Recalculate separator labels
+  let rollCount = 1;
+  newOrderItems.forEach(item => {
+    if (item.type === 'separator') { item.label = 'Site ' + (++rollCount); }
+  });
   document.getElementById('itemsList').innerHTML = newOrderItems.map((_,j)=>buildItemRow(j)).join('');
 };
 window.selectNewCust = (v) => {
@@ -2367,8 +2425,10 @@ window.submitNewOrder = async () => {
     customer = { name:c.name, phone:c.phone };
   } else { showErr('orderErr','Please select or add a customer'); return; }
 
-  const items = newOrderItems.filter(i=>i.laminate.trim()&&i.qty);
-  if (!items.length) { showErr('orderErr','Add at least one item'); return; }
+  const items = newOrderItems.filter(i=>i.type==='separator'||(i.laminate?.trim()&&i.qty));
+  const realItems = items.filter(i=>i.type!=='separator');
+  if (!realItems.length) { showErr('orderErr','Add at least one laminate item'); return; }
+  // realItems check already done above
 
   const btn = document.getElementById('submitOrderBtn');
   btn.disabled = true; btn.textContent = 'Creating...';
@@ -2389,7 +2449,7 @@ window.submitNewOrder = async () => {
     await addDoc(collection(db, 'tenants', currentTenantId, 'orders'), {
       orderId, customer,
       source, createdBy: currentProfile.name,
-      items: items.map(i=>({ laminate:i.laminate.trim(), qty:Number(i.qty) })),
+      items: items.map(i=>i.type==='separator' ? { type:'separator', label:i.label } : { laminate:i.laminate.trim(), qty:Number(i.qty) }),
       status: 'new',
       rollsPacked: 0, vehicleNo: '',
       notes: notes ? [notes] : [],
