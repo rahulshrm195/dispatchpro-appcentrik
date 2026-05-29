@@ -365,9 +365,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.2';
+const APP_VERSION = 'v1.3.3';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.3',
+    date: '29 May 2026',
+    tag: 'Operations',
+    changes: [
+      'Pipeline dashboard — Dispatched and Cancelled now show today only',
+      'Pipeline fully consistent — all rows show today data',
+      'Item rows redesigned — 16px bold black font with alternating white/grey rows',
+      'Applied in floor To Pack, Mark Ready and manager Dispatch views',
+    ]
+  },
   {
     version: 'v1.3.2',
     date: '20 May 2026',
@@ -1308,7 +1319,9 @@ function renderManagerNew() {
             </div>
             <span class="pill pill-new">New</span>
           </div>
-          <div class="oc-items">${(o.items||[]).map(i=>`${i.laminate} × ${i.qty} sheets`).join('<br>')}</div>
+          <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:6px 0 8px;">
+            ${(o.items||[]).map((i,idx)=>'<div style="display:flex;align-items:center;padding:8px 12px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:15px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>').join('')}
+          </div>
           ${o.notes?.length?`<div style="margin-top:8px;padding:8px 10px;background:var(--amber-bg);border-radius:8px;font-size:12px;color:var(--amber);font-weight:500;">📝 ${o.notes.join(' · ')}</div>`:''}
           <div class="oc-footer"><span class="oc-time">${timeAgo(o.createdAt)}</span><span class="oc-by">via ${o.source}</span></div>
           <div style="margin-top:10px;display:flex;gap:8px;">
@@ -1341,7 +1354,9 @@ function renderManagerDispatch() {
             <div><div class="oc-id">${o.orderId||o.id}</div><div class="oc-customer">${o.customer?.name||'—'}</div></div>
             <span class="pill pill-ready">Ready</span>
           </div>
-          <div class="oc-items">${(o.items||[]).map(i=>`${i.laminate} × ${i.qty} sheets`).join('<br>')}</div>
+          <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:6px 0 8px;">
+            ${(o.items||[]).map((i,idx)=>'<div style="display:flex;align-items:center;padding:8px 12px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:15px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>').join('')}
+          </div>
           <div style="margin:8px 0;padding:8px 10px;background:var(--green-bg);border-radius:8px;font-size:13px;color:var(--green);font-weight:500;">
             📦 ${o.rollsPacked||0} roll${o.rollsPacked!==1?'s':''} packed
           </div>
@@ -1404,9 +1419,9 @@ function renderFloorPacked() {
         return `<div class="kiosk-card">
           <div class="kiosk-card-id">${o.orderId||o.id}</div>
           <div class="kiosk-card-cust">${o.customer?.name||'—'}</div>
-          <div class="kiosk-items">
-            ${(o.items||[]).map(i=>`<span style="font-size:15px;font-weight:500;color:var(--text);">${i.laminate}</span> — <strong>${i.qty} sheets</strong>`).join('<br>')}
-            <div style="margin-top:6px;font-size:14px;font-weight:600;color:var(--text);">Total: ${totalSheets} sheets</div>
+          <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:10px;">
+            ${(o.items||[]).map((i,idx)=>'<div style="display:flex;align-items:center;padding:10px 14px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:16px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>').join('')}
+            <div style="padding:8px 14px;background:var(--bg3);border-top:1px solid var(--border);"><span style="font-size:14px;font-weight:600;color:var(--text);">Total: ${totalSheets} sheets</span></div>
           </div>
           <div class="kiosk-roll-input">
             <label>Rolls packed: <span style="color:var(--text3);font-weight:400;">(suggested: ${suggested})</span></label>
@@ -1433,8 +1448,14 @@ function renderAdminDash() {
   const dispTimes = ordersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
     .map(o=>(o.dispatchedAt.toMillis()-o.createdAt.toMillis())/3600000);
   const avgH = dispTimes.length ? (dispTimes.reduce((a,b)=>a+b,0)/dispTimes.length).toFixed(1) : '--';
-  const sc = { new:0,accepted:0,prep:0,ready:0,dispatched:0,cancelled:0 };
-  ordersCache.forEach(o=>{ if(sc[o.status]!==undefined) sc[o.status]++; });
+  const sc = {
+    new: ordersCache.filter(o=>o.status==='new').length,
+    accepted: ordersCache.filter(o=>o.status==='accepted').length,
+    prep: ordersCache.filter(o=>o.status==='prep').length,
+    ready: ordersCache.filter(o=>o.status==='ready').length,
+    dispatched: ordersCache.filter(o=>o.status==='dispatched'&&isToday(o.dispatchedAt||o.createdAt)).length,
+    cancelled: ordersCache.filter(o=>o.status==='cancelled'&&isToday(o.createdAt)).length,
+  };
   const maxC = Math.max(...Object.values(sc),1);
   const srcCall = ordersCache.filter(o=>o.source==='Call').length;
   const srcWA = ordersCache.filter(o=>o.source==='WhatsApp').length;
