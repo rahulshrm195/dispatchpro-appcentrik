@@ -1374,7 +1374,10 @@ function renderManagerNew() {
             <span class="pill pill-new">New</span>
           </div>
           <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:6px 0 8px;">
-            ${(o.items||[]).map((i,idx)=>'<div style="display:flex;align-items:center;padding:8px 12px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:15px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>').join('')}
+            ${(()=>{let idx=0;return (o.items||[]).map(i=>{
+              if(i.type==='separator') return '<div style="display:flex;align-items:center;gap:6px;padding:4px 12px;border-top:1px solid var(--border);background:var(--bg3);"><div style="flex:1;height:1px;background:var(--border2);"></div><span style="font-size:10px;font-weight:600;color:var(--text2);padding:1px 7px;background:var(--bg2);border:1px solid var(--border2);border-radius:20px;">'+i.label+'</span><div style="flex:1;height:1px;background:var(--border2);"></div></div>';
+              const row='<div style="display:flex;align-items:center;padding:8px 12px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:15px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>';
+              idx++;return row;}).join('');})()}
           </div>
           ${o.notes?.length?`<div style="margin-top:8px;padding:8px 10px;background:var(--amber-bg);border-radius:8px;font-size:12px;color:var(--amber);font-weight:500;">📝 ${o.notes.join(' · ')}</div>`:''}
           <div class="oc-footer"><span class="oc-time">${timeAgo(o.createdAt)}</span><span class="oc-by">via ${o.source}</span></div>
@@ -1409,7 +1412,10 @@ function renderManagerDispatch() {
             <span class="pill pill-ready">Ready</span>
           </div>
           <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:6px 0 8px;">
-            ${(o.items||[]).map((i,idx)=>'<div style="display:flex;align-items:center;padding:8px 12px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:15px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>').join('')}
+            ${(()=>{let idx=0;return (o.items||[]).map(i=>{
+              if(i.type==='separator') return '<div style="display:flex;align-items:center;gap:6px;padding:4px 12px;border-top:1px solid var(--border);background:var(--bg3);"><div style="flex:1;height:1px;background:var(--border2);"></div><span style="font-size:10px;font-weight:600;color:var(--text2);padding:1px 7px;background:var(--bg2);border:1px solid var(--border2);border-radius:20px;">'+i.label+'</span><div style="flex:1;height:1px;background:var(--border2);"></div></div>';
+              const row='<div style="display:flex;align-items:center;padding:8px 12px;background:'+(idx%2===0?'var(--bg2)':'var(--bg3)')+(idx>0?';border-top:1px solid var(--border)':'')+'"><span style="font-size:15px;font-weight:500;color:var(--text);">'+i.laminate+' × '+i.qty+' sheets</span></div>';
+              idx++;return row;}).join('');})()}
           </div>
           <div style="margin:8px 0;padding:8px 10px;background:var(--green-bg);border-radius:8px;font-size:13px;color:var(--green);font-weight:500;">
             📦 ${o.rollsPacked||0} roll${o.rollsPacked!==1?'s':''} packed
@@ -1450,7 +1456,15 @@ function renderFloorToPack() {
           <div class="kiosk-card-id">${o.orderId||o.id}</div>
           <div class="kiosk-card-cust">${o.customer?.name||'—'}</div>
           <div class="kiosk-items">
-            ${(o.items||[]).map(i=>`${i.laminate} — <strong>${i.qty} sheets</strong>`).join('<br>')}
+            ${(o.items||[]).map(i=>i.type==='separator'
+              ? `<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">
+                  <div style="flex:1;height:1px;background:var(--border2);"></div>
+                  <span style="font-size:10px;font-weight:600;color:var(--text2);padding:1px 7px;
+                    background:var(--bg3);border:1px solid var(--border2);border-radius:20px;">${i.label}</span>
+                  <div style="flex:1;height:1px;background:var(--border2);"></div>
+                </div>`
+              : `<span>${i.laminate} — <strong>${i.qty} sheets</strong></span>`
+            ).join('<br>')}
           </div>
           ${o.notes?.length?`<div style="padding:8px 10px;background:var(--amber-bg);border-radius:8px;font-size:13px;color:var(--amber);font-weight:500;margin-bottom:10px;">📝 Note: ${o.notes.join(' · ')}</div>`:''}
           <button class="kiosk-btn accept" onclick="startPrep('${o.id}')">▶ Start Packing</button>
