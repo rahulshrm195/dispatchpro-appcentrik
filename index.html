@@ -365,9 +365,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.4';
+const APP_VERSION = 'v1.3.5';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.5',
+    date: '29 May 2026',
+    tag: 'UX',
+    changes: [
+      'Source selection — two tap buttons instead of dropdown, WhatsApp selected by default',
+      'Button positions swapped — New Site on left, Add Laminate on right',
+      'Fixed: Empty customer selection bar showing on form open',
+      'Smart reorder correctly pre-selects source button',
+    ]
+  },
   {
     version: 'v1.3.4',
     date: '29 May 2026',
@@ -2062,7 +2073,7 @@ window.openSmartReorder = (o) => {
       document.getElementById('nof-selected').style.display = 'flex';
     }
     // Pre-select source
-    if (o.source) document.getElementById('nof-source').value = o.source;
+    if (o.source) { document.getElementById('nof-source').value = o.source; selectSource(o.source); }
   }, 100);
   document.getElementById('formModal').classList.add('open');
 };
@@ -2170,7 +2181,7 @@ function buildNewOrderForm() {
         border-radius:var(--radius);margin-top:4px;max-height:180px;overflow-y:auto;"></div>
       <div id="nof-selected" style="display:none;margin-top:6px;padding:10px 12px;
         background:var(--green-bg);border:1px solid #bbf7d0;border-radius:var(--radius);
-        display:flex;align-items:center;justify-content:space-between;">
+        align-items:center;justify-content:space-between;">
         <span style="font-size:13px;font-weight:500;color:var(--green);" id="nof-selected-label"></span>
         <button onclick="clearCustomerSelection()" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:16px;">✕</button>
       </div>
@@ -2194,17 +2205,28 @@ function buildNewOrderForm() {
     </div>
     <div class="form-group">
       <label class="form-label">Source</label>
-      <select class="form-select" id="nof-source">
-        <option value="Call">📞 Call</option>
-        <option value="WhatsApp">💬 WhatsApp</option>
-      </select>
+      <div style="display:flex;gap:8px;">
+        <button id="src-whatsapp" onclick="selectSource('WhatsApp')"
+          style="flex:1;padding:11px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:14px;font-weight:500;cursor:pointer;border:2px solid var(--green);
+          background:var(--green);color:white;transition:all 0.15s;">
+          💬 WhatsApp
+        </button>
+        <button id="src-call" onclick="selectSource('Call')"
+          style="flex:1;padding:11px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:14px;font-weight:500;cursor:pointer;border:2px solid var(--border2);
+          background:var(--bg2);color:var(--text2);transition:all 0.15s;">
+          📞 Call
+        </button>
+      </div>
+      <input type="hidden" id="nof-source" value="WhatsApp"/>
     </div>
     <div class="form-group">
       <label class="form-label">Laminate Items</label>
       <div id="itemsList">${newOrderItems.map((_,i)=>buildItemRow(i)).join('')}</div>
       <div style="display:flex;gap:8px;margin-top:4px;">
-        <button class="add-item-btn" style="flex:2;" onclick="addItem()">+ Add laminate</button>
         <button class="add-item-btn" style="flex:1;border-color:var(--purple);color:var(--purple);" onclick="addRollBreak()">📦 New Site</button>
+        <button class="add-item-btn" style="flex:2;" onclick="addItem()">+ Add laminate</button>
       </div>
     </div>
     <div class="form-group">
@@ -2330,6 +2352,20 @@ window.removeItem = (i) => {
   });
   document.getElementById('itemsList').innerHTML = newOrderItems.map((_,j)=>buildItemRow(j)).join('');
 };
+window.selectSource = (src) => {
+  document.getElementById('nof-source').value = src;
+  const waBtn = document.getElementById('src-whatsapp');
+  const callBtn = document.getElementById('src-call');
+  if (!waBtn || !callBtn) return;
+  if (src === 'WhatsApp') {
+    waBtn.style.background = 'var(--green)'; waBtn.style.borderColor = 'var(--green)'; waBtn.style.color = 'white';
+    callBtn.style.background = 'var(--bg2)'; callBtn.style.borderColor = 'var(--border2)'; callBtn.style.color = 'var(--text2)';
+  } else {
+    callBtn.style.background = 'var(--blue)'; callBtn.style.borderColor = 'var(--blue)'; callBtn.style.color = 'white';
+    waBtn.style.background = 'var(--bg2)'; waBtn.style.borderColor = 'var(--border2)'; waBtn.style.color = 'var(--text2)';
+  }
+};
+
 window.selectNewCust = (v) => {
   document.getElementById('newCustFields').style.display = v==='__new__'?'block':'none';
 };
@@ -2374,7 +2410,7 @@ window.selectCustomer = (id, name, phone) => {
   document.getElementById('newCustFields').style.display = 'none';
   const sel = document.getElementById('nof-selected');
   document.getElementById('nof-selected-label').textContent = name + ' · ' + phone;
-  sel.style.display = 'flex';
+  sel.style.display = 'flex'; sel.style.alignItems = 'center'; sel.style.justifyContent = 'space-between';
 };
 
 window.clearCustomerSelection = () => {
