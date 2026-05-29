@@ -2362,6 +2362,12 @@ window.addItem = () => {
   syncItemsFromDOM();
   newOrderItems.push({ laminate:'', qty:'', type:'item' });
   document.getElementById('itemsList').innerHTML = newOrderItems.map((_,i)=>buildItemRow(i)).join('');
+  // Auto focus and open keyboard on new row
+  const newIndex = newOrderItems.length - 1;
+  setTimeout(() => {
+    const el = document.getElementById('item-lam-' + newIndex);
+    if (el) el.focus();
+  }, 50);
 };
 window.addRollBreak = () => {
   syncItemsFromDOM();
