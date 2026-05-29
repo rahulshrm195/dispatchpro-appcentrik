@@ -254,6 +254,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .empty-text{font-size:14px;}
 .empty-sub{font-size:12px;color:var(--text3);margin-top:4px;}
 .fy-label{font-family:'DM Mono',monospace;font-size:11px;background:var(--bg3);color:var(--text2);padding:3px 8px;border-radius:6px;}
+.fab{position:fixed;bottom:75px;right:16px;width:52px;height:52px;background:var(--accent);
+border-radius:50%;border:none;color:white;font-size:26px;cursor:pointer;z-index:99;
+box-shadow:0 4px 12px rgba(15,23,42,0.35);display:none;align-items:center;justify-content:center;
+transition:transform 0.15s;}
+.fab:active{transform:scale(0.92);}
+.fab.visible{display:flex;}
 .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--accent);color:white;padding:10px 18px;border-radius:20px;font-size:13px;font-weight:500;z-index:300;opacity:0;transition:opacity 0.2s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;}
 .spinner-sm{width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block;vertical-align:middle;margin-right:6px;}
@@ -313,6 +319,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
   <div class="main-content" id="mainContent"></div>
   <div class="tabbar" id="tabbar"></div>
+  <button class="fab" id="fabBtn" onclick="openNewOrder()" aria-label="New Order">+</button>
 </div>
 
 <!-- DETAIL MODAL -->
@@ -365,9 +372,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.5';
+const APP_VERSION = 'v1.3.6';
 const APP_BUILD   = '30 Apr 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.6',
+    date: '29 May 2026',
+    tag: 'UX',
+    changes: [
+      'FAB button — floating + button for New Order on Orders tab',
+      'Office staff tab bar simplified to 2 tabs — Orders and Customers',
+      'FAB visible only on Orders tab for office and admin',
+      'Admin Orders header cleaned up — FY label shown instead of + New button',
+    ]
+  },
   {
     version: 'v1.3.5',
     date: '29 May 2026',
@@ -1070,7 +1088,6 @@ function setupApp() {
     tabs = [
       { icon:'📋', label:'Orders', view: renderOfficeOrders },
       { icon:'👥', label:'Customers', view: renderCustomers },
-      { icon:'➕', label:'New Order', action: openNewOrder }
     ];
     subscribeOrders(); subscribeCustomers(); subscribeLaminates();
   } else if (role === 'manager') {
@@ -1101,6 +1118,17 @@ function setupApp() {
 
   currentTab = 0;
   if (!tabs[0].action) renderTab(0);
+  updateFAB(0);
+}
+
+function updateFAB(tabIndex) {
+  const fab = document.getElementById('fabBtn');
+  if (!fab) return;
+  const role = currentProfile?.role;
+  // Show FAB only on Orders tab for office and admin
+  const isOrdersTab = (role === 'office' && tabIndex === 0) ||
+                      (role === 'admin' && tabIndex === 1);
+  fab.classList.toggle('visible', isOrdersTab);
 }
 
 function switchTab(i) {
@@ -1109,6 +1137,7 @@ function switchTab(i) {
   currentTab = i;
   document.querySelectorAll('.tab-item').forEach((t,j)=>t.classList.toggle('active',j===i));
   renderTab(i);
+  updateFAB(i);
 }
 
 function renderTab(i) {
@@ -1546,7 +1575,7 @@ function renderAdminOrders() {
         <div class="page-title">Orders</div>
         <div class="page-sub">${filtered.length} order${filtered.length!==1?'s':''} · ${formatDateDisplay(filterDate)}</div>
       </div>
-      <button class="btn-outline" style="padding:7px 12px;font-size:12px;" onclick="openNewOrder()">+ New</button>
+      <span class="fy-label">FY ${getFY()}</span>
     </div>
     <div style="padding:8px 16px;display:flex;align-items:center;gap:8px;">
       <input type="date" value="${filterDate}" max="${getTodayStr()}"
