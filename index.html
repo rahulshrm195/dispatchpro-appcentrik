@@ -2936,7 +2936,7 @@ setVersionStrings();
 
 // close modals on overlay click
 document.getElementById('detailModal').addEventListener('click', e => { if(e.target===document.getElementById('detailModal')) closeDetail(); });
-document.getElementById('formModal').addEventListener('click', e => { if(e.target===document.getElementById('formModal')) closeForm(); });
+// Form modal — NO tap-to-close to prevent accidental data loss
 
 // enter key on login
 document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
