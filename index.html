@@ -372,9 +372,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.9';
+const APP_VERSION = 'v1.3.10';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.10',
+    date: '30 May 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Customer detail modal showing 0 orders and 0 sheets',
+      'Customer order history now correctly includes full dispatch history',
+    ]
+  },
   {
     version: 'v1.3.9',
     date: '30 May 2026',
@@ -2768,7 +2777,7 @@ window.saveNewCustomer = async () => {
 window.openCustomerDetail = (id) => {
   const c = customersCache.find(x=>x.id===id);
   if (!c) return;
-  const cos = ordersCache.filter(o=>o.customer?.phone===c.phone);
+  const cos = allOrdersCache.filter(o=>o.customer?.phone===c.phone);
   const totalSheets = cos.reduce((a,o)=>a+(o.items||[]).reduce((b,i)=>b+Number(i.qty),0),0);
   document.getElementById('detailContent').innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
