@@ -372,9 +372,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.10';
+const APP_VERSION = 'v1.3.11';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.11',
+    date: '30 May 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Tapping an order from customer history not opening order detail',
+      'Fixed: All order action buttons (accept, dispatch, cancel) now work on historical orders',
+    ]
+  },
   {
     version: 'v1.3.10',
     date: '30 May 2026',
@@ -2088,7 +2097,7 @@ function renderSuperTenants() {
 
 // ─── ORDER DETAIL MODAL ───────────────────────────────────────────────────────
 window.openDetail = (id) => {
-  const o = ordersCache.find(x=>x.id===id);
+  const o = allOrdersCache.find(x=>x.id===id);
   if (!o) return;
   const stages = ['new','accepted','prep','ready','dispatched'];
   const si = stages.indexOf(o.status);
@@ -2153,7 +2162,7 @@ window.closeDetail = () => document.getElementById('detailModal').classList.remo
 window.closeForm = () => document.getElementById('formModal').classList.remove('open');
 
 window.openCancelOrder = (id) => {
-  const o = ordersCache.find(x=>x.id===id);
+  const o = allOrdersCache.find(x=>x.id===id);
   if (!o) return;
   document.getElementById('formContent').innerHTML = `
     <div class="modal-title" style="color:var(--red);">Cancel Order</div>
@@ -2193,7 +2202,7 @@ window.confirmCancelOrder = async (id) => {
   if (!reason) { showErr('cancelErr','Please select a reason'); return; }
   const btn = document.getElementById('confirmCancelBtn');
   btn.disabled = true; btn.textContent = 'Cancelling...';
-  const o = ordersCache.find(x=>x.id===id);
+  const o = allOrdersCache.find(x=>x.id===id);
   try {
     await updateDoc(doc(db, 'tenants', currentTenantId, 'orders', id), {
       status: 'cancelled',
@@ -2244,14 +2253,14 @@ window.acceptOrder = async (id) => {
   await updateDoc(ref, {
     status: 'accepted',
     acceptedAt: serverTimestamp(),
-    timeline: [...(ordersCache.find(o=>o.id===id)?.timeline||[]),
+    timeline: [...(allOrdersCache.find(o=>o.id===id)?.timeline||[]),
       { action: 'Accepted by manager', by: currentProfile.name, time: new Date() }]
   });
   showToast('✓ Order accepted');
 };
 
 window.startPrep = async (id) => {
-  const o = ordersCache.find(x=>x.id===id);
+  const o = allOrdersCache.find(x=>x.id===id);
   const ref = doc(db, 'tenants', currentTenantId, 'orders', id);
   await updateDoc(ref, {
     status: 'prep',
@@ -2295,7 +2304,7 @@ window.markReady = async (id) => {
   const rollsEl = document.getElementById('rolls-' + id);
   const rolls = parseInt(rollsEl?.value);
   if (!rolls || rolls < 1) { showToast('Enter number of rolls packed'); return; }
-  const o = ordersCache.find(x=>x.id===id);
+  const o = allOrdersCache.find(x=>x.id===id);
   const ref = doc(db, 'tenants', currentTenantId, 'orders', id);
   await updateDoc(ref, {
     status: 'ready',
@@ -2310,7 +2319,7 @@ window.markReady = async (id) => {
 window.dispatchOrder = async (id) => {
   const veh = document.getElementById('veh-' + id)?.value.trim();
   if (!veh) { showToast('Enter vehicle number'); return; }
-  const o = ordersCache.find(x=>x.id===id);
+  const o = allOrdersCache.find(x=>x.id===id);
   const ref = doc(db, 'tenants', currentTenantId, 'orders', id);
   await updateDoc(ref, {
     status: 'dispatched',
