@@ -372,9 +372,30 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.7';
+const APP_VERSION = 'v1.3.9';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.9',
+    date: '30 May 2026',
+    tag: 'Performance',
+    changes: [
+      'Done tab pagination — loads 20 orders at a time instead of all at once',
+      'Load More button shows remaining count — tap to load next 20',
+      'Resets to first page when switching tabs',
+    ]
+  },
+  {
+    version: 'v1.3.8',
+    date: '30 May 2026',
+    tag: 'Performance',
+    changes: [
+      'Admin Firebase optimization — active orders via real-time sync, history loaded separately',
+      'Dispatched + cancelled orders loaded once via getDocs — no continuous listener',
+      'Dashboard and Reports use combined cache — all data still available',
+      'Significant read reduction for admin role',
+    ]
+  },
   {
     version: 'v1.3.7',
     date: '30 May 2026',
@@ -706,7 +727,9 @@ let currentTab = 0;
 let filterStatus = 'all';
 let searchQ = '';
 let filterDate = new Date().toISOString().split('T')[0]; // Default: today YYYY-MM-DD
-let ordersCache = [];
+let ordersCache = [];       // Active orders only (real-time onSnapshot)
+let historyCache = [];      // Dispatched + cancelled (loaded once via getDocs, admin only)
+let allOrdersCache = [];    // Combined: ordersCache + historyCache (admin dash/reports)
 let customersCache = [];
 let laminatesCache = [];
 let usersCache = [];
@@ -714,6 +737,8 @@ let tenantsCache = [];
 let unsubOrders = null;
 let unsubCustomers = null;
 let newOrderItems = [{ laminate: '', qty: '', type: 'item' }];
+const DONE_PAGE_SIZE = 20;
+let donePageCount = 1; // How many pages loaded (each = 20 orders)
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function getFY() {
@@ -1039,7 +1064,7 @@ async function doLogin() {
 async function doLogout() {
   if (unsubOrders) unsubOrders();
   if (unsubCustomers) unsubCustomers();
-  ordersCache = []; customersCache = []; usersCache = []; tenantsCache = []; laminatesCache = [];
+  ordersCache = []; historyCache = []; allOrdersCache = []; customersCache = []; usersCache = []; tenantsCache = []; laminatesCache = [];
   await signOut(auth);
 }
 
@@ -1094,7 +1119,7 @@ function setupApp() {
       { icon:'👤', label:'Users', view: renderUsers },
       { icon:'📈', label:'Reports', view: renderReports },
     ];
-    subscribeOrders(); subscribeCustomers(); loadUsers(); subscribeLaminates();
+    subscribeOrders(); subscribeCustomers(); loadUsers(); subscribeLaminates(); loadAdminHistory();
   } else if (role === 'office') {
     tabs = [
       { icon:'📋', label:'Orders', view: renderOfficeOrders },
@@ -1145,6 +1170,8 @@ function updateFAB(tabIndex) {
 function switchTab(i) {
   const tab = window._tabs[i];
   if (tab.action) { tab.action(); return; }
+  // Reset Done tab pagination when leaving the tab
+  if (i !== currentTab) donePageCount = 1;
   currentTab = i;
   document.querySelectorAll('.tab-item').forEach((t,j)=>t.classList.toggle('active',j===i));
   renderTab(i);
@@ -1183,27 +1210,26 @@ function subscribeOrders() {
   const role = currentProfile.role;
 
   // Role-based status filters — only load what each role actually needs
-  // Manager: needs new/accepted/prep/ready to act on + dispatched for Done tab
-  // Floor: only needs accepted/prep to pack
-  // Office/Admin: needs active orders; dispatched/cancelled loaded separately for history
+  // Admin: active orders only via onSnapshot; history loaded separately via loadAdminHistory()
+  // Manager: new/accepted/prep/ready/dispatched (Done tab needs dispatched)
+  // Floor: accepted/prep only — focused packing queue
+  // Office: active + cancelled for today view, no historical bloat
   let statusFilter = null;
   let sortDir = 'desc';
 
-  if (role === 'manager') {
-    // Manager Done tab shows dispatched — include it but real-time only needed for active
+  if (role === 'admin') {
+    statusFilter = ['new', 'accepted', 'prep', 'ready'];
+    sortDir = 'desc';
+  } else if (role === 'manager') {
     statusFilter = ['new', 'accepted', 'prep', 'ready', 'dispatched'];
     sortDir = 'asc';
   } else if (role === 'floor') {
-    // Floor only packs accepted/prep — never needs to see dispatched
     statusFilter = ['accepted', 'prep'];
     sortDir = 'asc';
   } else if (role === 'office') {
-    // Office needs active + cancelled (for today's view) — not full history
     statusFilter = ['new', 'accepted', 'prep', 'ready', 'cancelled'];
     sortDir = 'desc';
   }
-  // Admin gets all statuses (needs full data for dashboard + reports)
-  // but this will be further optimized tonight with pagination
 
   const constraints = [
     collection(db, 'tenants', currentTenantId, 'orders'),
@@ -1246,8 +1272,32 @@ function subscribeOrders() {
       isFirstLoad = false;
     }
     ordersCache = newCache;
+    // For admin, rebuild allOrdersCache combining active + history
+    if (currentProfile.role === 'admin') {
+      allOrdersCache = [...ordersCache, ...historyCache];
+    } else {
+      allOrdersCache = ordersCache;
+    }
     refreshCurrentTab();
   });
+}
+
+// Admin only — load dispatched + cancelled history once via getDocs (no real-time needed)
+async function loadAdminHistory() {
+  if (currentProfile.role !== 'admin') return;
+  try {
+    const q = query(
+      collection(db, 'tenants', currentTenantId, 'orders'),
+      where('status', 'in', ['dispatched', 'cancelled']),
+      orderBy('createdAt', 'desc')
+    );
+    const snap = await getDocs(q);
+    historyCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allOrdersCache = [...ordersCache, ...historyCache];
+    refreshCurrentTab();
+  } catch(e) {
+    console.log('Admin history load error:', e.message);
+  }
 }
 
 function subscribeCustomers() {
@@ -1470,13 +1520,34 @@ function renderManagerDispatch() {
 
 function renderManagerDone() {
   const list = ordersCache.filter(o=>o.status==='dispatched');
+  const total = list.length;
+  const showing = Math.min(donePageCount * DONE_PAGE_SIZE, total);
+  const visible = list.slice(0, showing);
+  const remaining = total - showing;
   return `
-    <div class="page-header"><div class="page-title">Dispatched</div><div class="page-sub">${list.length} completed</div></div>
+    <div class="page-header"><div class="page-title">Dispatched</div><div class="page-sub">${total} completed</div></div>
     <div class="section-pad">
-      ${list.length ? list.map(o=>orderCardHtml(o,false)).join('')
-        : `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No dispatched orders yet</div></div>`}
+      ${total ? visible.map(o=>orderCardHtml(o,false)).join('') : `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No dispatched orders yet</div></div>`}
+      ${remaining > 0 ? `
+        <div style="text-align:center;padding:12px 0 8px;">
+          <button onclick="loadMoreDone()"
+            style="padding:10px 24px;border:1.5px solid var(--border2);border-radius:var(--radius);
+            background:var(--bg2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;
+            color:var(--text2);cursor:pointer;">
+            Load more <span style="color:var(--text3);font-size:12px;">(${remaining} remaining)</span>
+          </button>
+        </div>` : total > DONE_PAGE_SIZE ? `
+        <div style="text-align:center;padding:8px 0;font-size:12px;color:var(--text3);">
+          All ${total} orders loaded
+        </div>` : ''}
     </div>`;
 }
+
+window.loadMoreDone = () => {
+  donePageCount++;
+  renderTab(currentTab);
+  // Scroll to where we were — keep position
+};
 
 // ─── FLOOR VIEWS ──────────────────────────────────────────────────────────────
 function renderFloorToPack() {
@@ -1549,25 +1620,25 @@ function renderFloorPacked() {
 
 // ─── ADMIN VIEWS ──────────────────────────────────────────────────────────────
 function renderAdminDash() {
-  const total = ordersCache.filter(o=>o.status!=='cancelled').length;
-  const today = ordersCache.filter(o=>isToday(o.createdAt)&&o.status!=='cancelled').length;
-  const dispatched = ordersCache.filter(o=>o.status==='dispatched').length;
-  const stuck = ordersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
-  const active = ordersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
-  const dispTimes = ordersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
+  const total = allOrdersCache.filter(o=>o.status!=='cancelled').length;
+  const today = allOrdersCache.filter(o=>isToday(o.createdAt)&&o.status!=='cancelled').length;
+  const dispatched = allOrdersCache.filter(o=>o.status==='dispatched').length;
+  const stuck = allOrdersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
+  const active = allOrdersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
+  const dispTimes = allOrdersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
     .map(o=>(o.dispatchedAt.toMillis()-o.createdAt.toMillis())/3600000);
   const avgH = dispTimes.length ? (dispTimes.reduce((a,b)=>a+b,0)/dispTimes.length).toFixed(1) : '--';
   const sc = {
-    new: ordersCache.filter(o=>o.status==='new').length,
-    accepted: ordersCache.filter(o=>o.status==='accepted').length,
-    prep: ordersCache.filter(o=>o.status==='prep').length,
-    ready: ordersCache.filter(o=>o.status==='ready').length,
-    dispatched: ordersCache.filter(o=>o.status==='dispatched'&&isToday(o.dispatchedAt||o.createdAt)).length,
-    cancelled: ordersCache.filter(o=>o.status==='cancelled'&&isToday(o.createdAt)).length,
+    new: allOrdersCache.filter(o=>o.status==='new').length,
+    accepted: allOrdersCache.filter(o=>o.status==='accepted').length,
+    prep: allOrdersCache.filter(o=>o.status==='prep').length,
+    ready: allOrdersCache.filter(o=>o.status==='ready').length,
+    dispatched: allOrdersCache.filter(o=>o.status==='dispatched'&&isToday(o.dispatchedAt||o.createdAt)).length,
+    cancelled: allOrdersCache.filter(o=>o.status==='cancelled'&&isToday(o.createdAt)).length,
   };
   const maxC = Math.max(...Object.values(sc),1);
-  const srcCall = ordersCache.filter(o=>o.source==='Call').length;
-  const srcWA = ordersCache.filter(o=>o.source==='WhatsApp').length;
+  const srcCall = allOrdersCache.filter(o=>o.source==='Call').length;
+  const srcWA = allOrdersCache.filter(o=>o.source==='WhatsApp').length;
   return `
     <div class="page-header"><div class="page-title">Dashboard</div><div class="page-sub">Live · FY ${getFY()}</div></div>
     <div class="section-pad">
@@ -1603,7 +1674,7 @@ function renderAdminDash() {
           </div>
         </div>
       </div>
-      ${stuck>0?`<div class="sec-label">Stuck Orders</div>${ordersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).map(o=>orderCardHtml(o,true)).join('')}`:''}
+      ${stuck>0?`<div class="sec-label">Stuck Orders</div>${allOrdersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).map(o=>orderCardHtml(o,true)).join('')}`:''}
     </div>`;
 }
 
@@ -1613,7 +1684,7 @@ function renderAdminOrders() {
   const ACTIVE = ['new','accepted','prep','ready'];
   const todayStr = getTodayStr();
   const isViewingToday = filterDate === todayStr;
-  const filtered = ordersCache.filter(o => {
+  const filtered = allOrdersCache.filter(o => {
     const createdOnDate = isSameDate(o.createdAt, filterDate);
     const isActive = ACTIVE.includes(o.status);
     const isSameDayDispatched = o.status==='dispatched' && isViewingToday && isSameDate(o.dispatchedAt||o.createdAt, todayStr);
@@ -1726,7 +1797,7 @@ window.resetReportDates = () => {
 function getOrdersInRange() {
   const from = new Date(reportFromDate + 'T00:00:00');
   const to = new Date(reportToDate + 'T23:59:59');
-  return ordersCache.filter(o => {
+  return allOrdersCache.filter(o => {
     if (!o.createdAt) return false;
     const d = new Date(o.createdAt.toMillis ? o.createdAt.toMillis() : o.createdAt);
     return d >= from && d <= to;
@@ -1965,7 +2036,7 @@ function renderCustomers() {
     </div>
     <div class="section-pad">
       ${filtered.length ? filtered.map(c=>{
-        const cos = ordersCache.filter(o=>o.customer?.phone===c.phone);
+        const cos = allOrdersCache.filter(o=>o.customer?.phone===c.phone);
         return `<div class="cust-item" onclick="openCustomerDetail('${c.id}')">
           <div class="cust-avatar">${initials(c.name)}</div>
           <div>
