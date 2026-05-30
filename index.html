@@ -372,9 +372,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.11';
+const APP_VERSION = 'v1.3.12';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.12',
+    date: '30 May 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Customer search bar losing focus after every keystroke',
+      'Search now updates only the list below — input stays focused while typing',
+    ]
+  },
   {
     version: 'v1.3.11',
     date: '30 May 2026',
@@ -2038,36 +2047,49 @@ function renderReports() {
 }
 
 function renderCustomers() {
-  const filtered = customersCache.filter(c =>
-    !custSearchQ ||
-    c.name.toLowerCase().includes(custSearchQ) ||
-    c.phone.includes(custSearchQ)
-  );
   return `
     <div class="page-header">
       <div><div class="page-title">Customers</div><div class="page-sub">${customersCache.length} total</div></div>
       ${['office','admin'].includes(currentProfile.role)?`<button class="btn-outline" style="padding:7px 12px;font-size:12px;" onclick="openNewCustomer()">+ Add</button>`:''}
     </div>
     <div class="search-wrap">
-      <input class="search-input" placeholder="Search by name or phone..." 
-        oninput="doCustSearch(this.value)" value="${custSearchQ}"/>
+      <input class="search-input" placeholder="Search by name or phone..."
+        oninput="doCustSearch(this.value)" value="${custSearchQ}" id="custSearchInput"/>
     </div>
-    <div class="section-pad">
-      ${filtered.length ? filtered.map(c=>{
-        const cos = allOrdersCache.filter(o=>o.customer?.phone===c.phone);
-        return `<div class="cust-item" onclick="openCustomerDetail('${c.id}')">
-          <div class="cust-avatar">${initials(c.name)}</div>
-          <div>
-            <div class="cust-name">${c.name}</div>
-            <div class="cust-meta">${c.phone} · ${cos.length} order${cos.length!==1?'s':''}</div>
-          </div>
-        </div>`;
-      }).join('')
-      : `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No customers found</div><div class="empty-sub">Try a different name or number</div></div>`}
+    <div class="section-pad" id="custList">
+      ${renderCustomerList()}
     </div>`;
 }
 
-window.doCustSearch = (v) => { custSearchQ = v.toLowerCase(); refreshCurrentTab(); };
+function renderCustomerList() {
+  const filtered = customersCache.filter(c =>
+    !custSearchQ ||
+    c.name.toLowerCase().includes(custSearchQ) ||
+    c.phone.includes(custSearchQ)
+  );
+  return filtered.length ? filtered.map(c => {
+    const cos = allOrdersCache.filter(o=>o.customer?.phone===c.phone);
+    return `<div class="cust-item" onclick="openCustomerDetail('${c.id}')">
+      <div class="cust-avatar">${initials(c.name)}</div>
+      <div>
+        <div class="cust-name">${c.name}</div>
+        <div class="cust-meta">${c.phone} · ${cos.length} order${cos.length!==1?'s':''}</div>
+      </div>
+    </div>`;
+  }).join('')
+  : `<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No customers found</div><div class="empty-sub">Try a different name or number</div></div>`;
+}
+
+window.doCustSearch = (v) => {
+  custSearchQ = v.toLowerCase();
+  // Only update the list — don't re-render the whole tab, preserves input focus
+  const listEl = document.getElementById('custList');
+  if (listEl) {
+    listEl.innerHTML = renderCustomerList();
+  } else {
+    refreshCurrentTab();
+  }
+};
 
 // ─── SUPER ADMIN VIEWS ────────────────────────────────────────────────────────
 function renderSuperTenants() {
