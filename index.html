@@ -372,9 +372,21 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.16';
+const APP_VERSION = 'v1.3.17';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.17',
+    date: '2 Jun 2026',
+    tag: 'Performance',
+    changes: [
+      'Laminates: replaced live onSnapshot with getDocs + 24hr sessionStorage cache',
+      'New laminate names update local cache instantly — no re-fetch needed',
+      'Removed unnecessary Firestore read in create user flow',
+      'Phone duplicate check skips Firestore when customer cache is loaded',
+      'Inline new customer during order creation now added to local cache immediately',
+    ]
+  },
   {
     version: 'v1.3.16',
     date: '2 Jun 2026',
@@ -1444,30 +1456,54 @@ function invalidateCustomersCache() {
   subscribeCustomers();
 }
 
-function subscribeLaminates() {
-  // No orderBy — avoids index requirement, sorts locally
-  const q = collection(db, 'tenants', currentTenantId, 'laminates');
-  onSnapshot(q, snap => {
+async function subscribeLaminates() {
+  // Laminates are autocomplete only — no real-time needed
+  // Load once per session with 24hr TTL cache
+  const LAMINATES_TTL_MINS = 1440; // 24 hours
+  const cacheKey = `laminates_${currentTenantId}`;
+  const tsKey = `laminatesTs_${currentTenantId}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    const cachedTs = sessionStorage.getItem(tsKey);
+    const ageMinutes = cachedTs ? (Date.now() - Number(cachedTs)) / 60000 : Infinity;
+    if (cached && ageMinutes < LAMINATES_TTL_MINS) {
+      laminatesCache = JSON.parse(cached);
+      console.log(`Laminates: served from cache (${Math.round(ageMinutes)}m old)`);
+      return;
+    }
+    const snap = await getDocs(collection(db, 'tenants', currentTenantId, 'laminates'));
     laminatesCache = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, err => {
-    // Silent fail — autocomplete just won't work, no crash
-    console.log('Laminates load error:', err.message);
-  });
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify(laminatesCache));
+      sessionStorage.setItem(tsKey, Date.now().toString());
+    } catch(e) {
+      // sessionStorage full — skip caching
+    }
+    console.log(`Laminates: fetched ${laminatesCache.length} docs from Firestore`);
+  } catch(e) {
+    console.log('Laminates load error:', e.message);
+  }
 }
 
 async function saveLaminateIfNew(name) {
   if (!name || !name.trim()) return;
   const clean = name.trim().toUpperCase();
-  // Check cache first
+  // Check cache first — skip if already known
   if (laminatesCache.find(l => l.name.toUpperCase() === clean)) return;
   // Save to Firestore silently in background
   try {
-    await addDoc(collection(db, 'tenants', currentTenantId, 'laminates'), {
+    const ref = await addDoc(collection(db, 'tenants', currentTenantId, 'laminates'), {
       name: clean,
       createdAt: serverTimestamp()
     });
+    // Update local cache immediately so autocomplete works in same session
+    laminatesCache = [...laminatesCache, { id: ref.id, name: clean }]
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    // Invalidate sessionStorage so next session gets fresh data
+    sessionStorage.removeItem(`laminates_${currentTenantId}`);
+    sessionStorage.removeItem(`laminatesTs_${currentTenantId}`);
   } catch(e) {
     // Silent fail — don't interrupt order creation
   }
@@ -2594,9 +2630,10 @@ function parsePhone(raw) {
 }
 
 async function isPhoneTaken(phone) {
-  // First check cache (instant)
+  // Check cache first — cache is TTL-managed so it's reliable
   if (customersCache.find(c => c.phone === phone)) return true;
-  // Then verify with Firestore (in case cache is stale)
+  // Only hit Firestore if cache is empty (first load edge case)
+  if (customersCache.length > 0) return false;
   const q = query(collection(db, 'tenants', currentTenantId, 'customers'), where('phone', '==', phone));
   const snap = await getDocs(q);
   return !snap.empty;
@@ -2741,7 +2778,12 @@ window.submitNewOrder = async () => {
       showErr('orderErr', `⚠ Phone already linked to "${existing?.name || 'another customer'}". Search and select them instead.`);
       return;
     }
-    await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name:newCustName, phone:newCustPhone, createdAt:serverTimestamp() });
+    const custRef = await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name:newCustName, phone:newCustPhone, createdAt:serverTimestamp() });
+    // Add to local cache immediately so next order creation shows this customer
+    customersCache = [...customersCache, { id: custRef.id, name:newCustName, phone:newCustPhone }]
+      .sort((a,b) => a.name.localeCompare(b.name));
+    sessionStorage.removeItem(`customers_${currentTenantId}`);
+    sessionStorage.removeItem(`customersTs_${currentTenantId}`);
     customer = { name:newCustName, phone:newCustPhone };
   } else if (custId) {
     // Existing customer selected
@@ -2835,8 +2877,7 @@ window.saveNewUser = async () => {
   const btn = document.getElementById('saveUserBtn');
   btn.disabled = true; btn.textContent = 'Creating...';
   try {
-    const tenantSnap = await getDoc(doc(db, 'tenants', currentTenantId));
-    const tenantName = tenantSnap.data()?.name || '';
+    const tenantName = currentProfile.tenantName || '';
     const cred = await createUserWithEmailAndPassword(auth2, email, pass);
     await setDoc(doc(db, 'users', cred.user.uid), {
       name, email, role, tenantId: currentTenantId, tenantName, createdAt: serverTimestamp()
