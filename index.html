@@ -372,9 +372,27 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.14';
+const APP_VERSION = 'v1.3.16';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.16',
+    date: '2 Jun 2026',
+    tag: 'UX',
+    changes: [
+      'Dashboard simplified — removed Avg dispatch time and Order Source cards',
+      'Dashboard now shows Orders today, Active orders, Stuck orders, Pipeline, Stuck orders list',
+    ]
+  },
+  {
+    version: 'v1.3.15',
+    date: '2 Jun 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Avg dispatch time showing NaNh on dashboard',
+      'Avg dispatch now shows -- when no valid dispatch data available',
+    ]
+  },
   {
     version: 'v1.3.14',
     date: '2 Jun 2026',
@@ -1743,11 +1761,6 @@ function renderAdminDash() {
   const dispatched = allOrdersCache.filter(o=>o.status==='dispatched').length;
   const stuck = allOrdersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
   const active = allOrdersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
-  const dispTimes = allOrdersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
-    .map(o=>{
-      return (tsToMillis(o.dispatchedAt) - tsToMillis(o.createdAt)) / 3600000;
-    });
-  const avgH = dispTimes.length ? (dispTimes.reduce((a,b)=>a+b,0)/dispTimes.length).toFixed(1) : '--';
   const sc = {
     new: allOrdersCache.filter(o=>o.status==='new').length,
     accepted: allOrdersCache.filter(o=>o.status==='accepted').length,
@@ -1757,15 +1770,12 @@ function renderAdminDash() {
     cancelled: allOrdersCache.filter(o=>o.status==='cancelled'&&isToday(o.createdAt)).length,
   };
   const maxC = Math.max(...Object.values(sc),1);
-  const srcCall = allOrdersCache.filter(o=>o.source==='Call').length;
-  const srcWA = allOrdersCache.filter(o=>o.source==='WhatsApp').length;
   return `
     <div class="page-header"><div class="page-title">Dashboard</div><div class="page-sub">Live · FY ${getFY()}</div></div>
     <div class="section-pad">
       <div class="stat-grid" style="margin-bottom:14px;">
         <div class="stat-card"><div class="stat-val">${today}</div><div class="stat-label">Orders today</div></div>
         <div class="stat-card"><div class="stat-val">${active}</div><div class="stat-label">Active orders</div></div>
-        <div class="stat-card"><div class="stat-val">${avgH}h</div><div class="stat-label">Avg dispatch time</div></div>
         <div class="stat-card" style="${stuck>0?'border-color:var(--red);':''}">
           <div class="stat-val" style="${stuck>0?'color:var(--red);':''}">${stuck}</div>
           <div class="stat-label" style="${stuck>0?'color:var(--red);':''}">Stuck orders ⚠</div>
@@ -1779,20 +1789,6 @@ function renderAdminDash() {
             <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${Math.round(c/maxC*100)}%"></div></div>
             <div class="chart-val">${c}</div>
           </div>`).join('')}
-      </div>
-      <div class="sec-label">Order Source</div>
-      <div class="detail-section" style="margin-bottom:14px;">
-        <div style="display:flex;gap:12px;">
-          <div style="flex:1;text-align:center;padding:10px 0;">
-            <div style="font-size:22px;font-weight:600;">${srcCall}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:3px;">📞 Call</div>
-          </div>
-          <div style="width:1px;background:var(--border);"></div>
-          <div style="flex:1;text-align:center;padding:10px 0;">
-            <div style="font-size:22px;font-weight:600;">${srcWA}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:3px;">💬 WhatsApp</div>
-          </div>
-        </div>
       </div>
       ${stuck>0?`<div class="sec-label">Stuck Orders</div>${allOrdersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).map(o=>orderCardHtml(o,true)).join('')}`:''}
     </div>`;
