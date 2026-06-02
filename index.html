@@ -372,9 +372,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.17';
+const APP_VERSION = 'v1.3.18';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.18',
+    date: '2 Jun 2026',
+    tag: 'UX',
+    changes: [
+      'Godown Manager renamed to Godown Staff across all role labels and dropdowns',
+      'Godown Floor label also updated for consistency',
+    ]
+  },
   {
     version: 'v1.3.17',
     date: '2 Jun 2026',
@@ -922,7 +931,7 @@ function hideErr(id) {
 }
 function getRoleBadge(role) {
   const map = { office:'role-office', manager:'role-manager', floor:'role-floor', admin:'role-admin', superadmin:'role-superadmin' };
-  const labels = { office:'Office', manager:'Manager', floor:'Floor', admin:'Admin', superadmin:'Super Admin' };
+  const labels = { office:'Office', manager:'Godown Staff', floor:'Godown Floor', admin:'Admin', superadmin:'Super Admin' };
   return `<span class="role-pill ${map[role]||''}">${labels[role]||role}</span>`;
 }
 function getOrdersBadgeCount() {
