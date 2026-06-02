@@ -372,9 +372,21 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.12';
+const APP_VERSION = 'v1.3.13';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.13',
+    date: '2 Jun 2026',
+    tag: 'Performance',
+    changes: [
+      'Admin history: 30min sessionStorage TTL cache — zero Firestore reads on reopen within 30min',
+      'Admin history: limited to last 60 days — ~75% reduction in docs fetched',
+      'Customers: replaced live listener with getDocs + 60min TTL cache',
+      'Users/Tenants: local cache updates after toggle/add/delete — no refetch',
+      'Logout clears all sessionStorage caches for clean next login',
+    ]
+  },
   {
     version: 'v1.3.12',
     date: '30 May 2026',
@@ -1092,6 +1104,8 @@ async function doLogout() {
   if (unsubOrders) unsubOrders();
   if (unsubCustomers) unsubCustomers();
   ordersCache = []; historyCache = []; allOrdersCache = []; customersCache = []; usersCache = []; tenantsCache = []; laminatesCache = [];
+  // Clear sessionStorage caches on logout so next login gets fresh data
+  sessionStorage.clear();
   await signOut(auth);
 }
 
@@ -1312,28 +1326,87 @@ function subscribeOrders() {
 // Admin only — load dispatched + cancelled history once via getDocs (no real-time needed)
 async function loadAdminHistory() {
   if (currentProfile.role !== 'admin') return;
+  const HISTORY_TTL_MINS = 30;
+  const cacheKey = `adminHistory_${currentTenantId}`;
+  const tsKey = `adminHistoryTs_${currentTenantId}`;
   try {
+    // Check sessionStorage TTL cache first
+    const cached = sessionStorage.getItem(cacheKey);
+    const cachedTs = sessionStorage.getItem(tsKey);
+    const ageMinutes = cachedTs ? (Date.now() - Number(cachedTs)) / 60000 : Infinity;
+    if (cached && ageMinutes < HISTORY_TTL_MINS) {
+      // Use cached data — zero Firestore reads
+      historyCache = JSON.parse(cached);
+      allOrdersCache = [...ordersCache, ...historyCache];
+      refreshCurrentTab();
+      console.log(`Admin history: served from cache (${Math.round(ageMinutes)}m old)`);
+      return;
+    }
+    // Cache expired or missing — fetch last 60 days from Firestore
+    const since = new Date();
+    since.setDate(since.getDate() - 60);
     const q = query(
       collection(db, 'tenants', currentTenantId, 'orders'),
       where('status', 'in', ['dispatched', 'cancelled']),
+      where('createdAt', '>=', since),
       orderBy('createdAt', 'desc')
     );
     const snap = await getDocs(q);
     historyCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     allOrdersCache = [...ordersCache, ...historyCache];
+    // Save to sessionStorage cache with timestamp
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify(historyCache));
+      sessionStorage.setItem(tsKey, Date.now().toString());
+    } catch(e) {
+      // sessionStorage full — skip caching, not critical
+    }
     refreshCurrentTab();
+    console.log(`Admin history: fetched ${historyCache.length} docs from Firestore`);
   } catch(e) {
     console.log('Admin history load error:', e.message);
   }
 }
 
-function subscribeCustomers() {
-  if (unsubCustomers) unsubCustomers();
-  const q = query(collection(db, 'tenants', currentTenantId, 'customers'), orderBy('name'));
-  unsubCustomers = onSnapshot(q, snap => {
+async function subscribeCustomers() {
+  // Customers don't change in real-time — use getDocs with 60min sessionStorage TTL
+  // No live listener needed, saves 168 reads × every app open × 5 devices
+  const CUSTOMER_TTL_MINS = 60;
+  const cacheKey = `customers_${currentTenantId}`;
+  const tsKey = `customersTs_${currentTenantId}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    const cachedTs = sessionStorage.getItem(tsKey);
+    const ageMinutes = cachedTs ? (Date.now() - Number(cachedTs)) / 60000 : Infinity;
+    if (cached && ageMinutes < CUSTOMER_TTL_MINS) {
+      customersCache = JSON.parse(cached);
+      refreshCurrentTab();
+      console.log(`Customers: served from cache (${Math.round(ageMinutes)}m old)`);
+      return;
+    }
+    const q = query(collection(db, 'tenants', currentTenantId, 'customers'), orderBy('name'));
+    const snap = await getDocs(q);
     customersCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify(customersCache));
+      sessionStorage.setItem(tsKey, Date.now().toString());
+    } catch(e) {
+      // sessionStorage full — skip caching
+    }
     refreshCurrentTab();
-  });
+    console.log(`Customers: fetched ${customersCache.length} docs from Firestore`);
+  } catch(e) {
+    console.log('Customers load error:', e.message);
+  }
+}
+
+// Call after any customer write to invalidate cache and reload
+function invalidateCustomersCache() {
+  const cacheKey = `customers_${currentTenantId}`;
+  const tsKey = `customersTs_${currentTenantId}`;
+  sessionStorage.removeItem(cacheKey);
+  sessionStorage.removeItem(tsKey);
+  subscribeCustomers();
 }
 
 function subscribeLaminates() {
@@ -1378,7 +1451,8 @@ window.toggleUserStatus = async (uid, name, currentlyDisabled) => {
   try {
     await updateDoc(doc(db, 'users', uid), { disabled: !currentlyDisabled });
     showToast(`${currentlyDisabled ? '✓ Activated' : '⚠ Deactivated'} — ${name}`);
-    await loadUsers();
+    // Update local cache instead of refetching from Firestore
+    usersCache = usersCache.map(u => u.uid === uid ? { ...u, disabled: !currentlyDisabled } : u);
     renderTab(currentTab);
   } catch(e) {
     showToast('Failed to update user status');
@@ -2753,7 +2827,8 @@ window.saveNewUser = async () => {
     await signOut(auth2);
     closeForm();
     showToast(`✓ User ${name} created`);
-    await loadUsers();
+    // Add to local cache instead of refetching all users from Firestore
+    usersCache = [...usersCache, { uid: cred.user.uid, name, email, role, tenantId: currentTenantId, disabled: false }];
     renderTab(currentTab);
   } catch(e) {
     showErr('userErr', e.code==='auth/email-already-in-use'?'Email already in use':('Failed: '+e.message));
@@ -2797,9 +2872,14 @@ window.saveNewCustomer = async () => {
       btn.disabled = false; btn.textContent = 'Save Customer';
       return;
     }
-    await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name, phone, createdAt: serverTimestamp() });
+    const ref = await addDoc(collection(db, 'tenants', currentTenantId, 'customers'), { name, phone, createdAt: serverTimestamp() });
+    // Update local cache directly + invalidate sessionStorage so next full load is fresh
+    customersCache = [...customersCache, { id: ref.id, name, phone }].sort((a,b)=>a.name.localeCompare(b.name));
+    sessionStorage.removeItem(`customers_${currentTenantId}`);
+    sessionStorage.removeItem(`customersTs_${currentTenantId}`);
     closeForm();
     showToast('✓ Customer added');
+    refreshCurrentTab();
   } catch(e) {
     showErr('custErr','Failed to save'); btn.disabled=false; btn.textContent='Save Customer';
   }
@@ -2862,8 +2942,13 @@ window.saveEditCustomer = async (id) => {
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
     await updateDoc(doc(db, 'tenants', currentTenantId, 'customers', id), { name });
+    // Update local cache directly
+    customersCache = customersCache.map(c => c.id === id ? { ...c, name } : c);
+    sessionStorage.removeItem(`customers_${currentTenantId}`);
+    sessionStorage.removeItem(`customersTs_${currentTenantId}`);
     closeForm();
     showToast('✓ Customer name updated');
+    refreshCurrentTab();
   } catch(e) {
     showErr('editCustErr', 'Failed to save. Try again.');
     btn.disabled = false; btn.textContent = 'Save Changes';
@@ -2922,7 +3007,8 @@ window.saveNewTenant = async () => {
     await signOut(auth2);
     closeForm();
     showToast(`✓ Tenant "${name}" created!`);
-    await loadTenants();
+    // Add to local cache instead of refetching
+    tenantsCache = [...tenantsCache, { id: tenantId, name, city, active: true }];
     renderTab(0);
   } catch(e) {
     showErr('tenantErr', e.code==='auth/email-already-in-use'?'Email already in use':('Error: '+e.message));
@@ -3012,7 +3098,8 @@ window.toggleTenant = async (tenantId, currentlyActive) => {
   try {
     await updateDoc(doc(db, 'tenants', tenantId), { active: !currentlyActive });
     showToast(currentlyActive ? 'Tenant deactivated' : 'Tenant activated');
-    await loadTenants();
+    // Update local cache instead of refetching
+    tenantsCache = tenantsCache.map(t => t.id === tenantId ? { ...t, active: !currentlyActive } : t);
     renderTab(0);
   } catch(e) {
     showToast('Failed to update tenant');
@@ -3073,7 +3160,8 @@ window.deleteTenant = async (tenantId, tenantName) => {
     await batch.commit();
     closeDetail();
     showToast(`✓ Tenant "${tenantName}" deleted`);
-    await loadTenants();
+    // Remove from local cache instead of refetching
+    tenantsCache = tenantsCache.filter(t => t.id !== tenantId);
     renderTab(0);
   } catch(e) {
     showToast('Failed to delete tenant: ' + e.message);
