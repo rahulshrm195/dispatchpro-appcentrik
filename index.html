@@ -372,9 +372,19 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.13';
+const APP_VERSION = 'v1.3.14';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.14',
+    date: '2 Jun 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Dashboard and Reports crashing due to Timestamp serialization from sessionStorage cache',
+      'Added tsToMillis() — safe converter for Firestore Timestamps, JSON-serialized timestamps, and ms numbers',
+      'Renamed Godown Manager → Godown Staff',
+    ]
+  },
   {
     version: 'v1.3.13',
     date: '2 Jun 2026',
@@ -687,7 +697,7 @@ const CHANGELOG = [
     date: '30 Apr 2026',
     tag: 'Operations',
     changes: [
-      'Order queue fixed — godown manager and floor now see oldest order first (FIFO)',
+      'Order queue fixed — godown staff and floor now see oldest order first (FIFO)',
       'Office and admin continue to see newest orders first',
     ]
   },
@@ -794,9 +804,16 @@ function getStatusLabel(s) {
 function getStatusClass(s) {
   return { new:'pill-new', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched', cancelled:'pill-cancelled' }[s] || '';
 }
+// Safe timestamp converter — handles Firestore Timestamp, plain JSON (_seconds), and ms numbers
+function tsToMillis(ts) {
+  if (!ts) return 0;
+  if (ts.toMillis) return ts.toMillis();                          // Firestore Timestamp
+  if (ts._seconds) return ts._seconds * 1000 + (ts._nanoseconds||0) / 1e6; // JSON-serialized Timestamp
+  return Number(ts);                                              // raw ms number
+}
 function timeAgo(ts) {
   if (!ts) return '';
-  const d = Date.now() - (ts.toMillis ? ts.toMillis() : ts);
+  const d = Date.now() - tsToMillis(ts);
   if (d < 60000) return 'just now';
   if (d < 3600000) return Math.floor(d/60000) + 'm ago';
   if (d < 86400000) return Math.floor(d/3600000) + 'h ago';
@@ -804,7 +821,7 @@ function timeAgo(ts) {
 }
 function formatTimestamp(ts) {
   if (!ts) return '';
-  const d = new Date(ts.toMillis ? ts.toMillis() : ts);
+  const d = new Date(tsToMillis(ts));
   const day = d.getDate();
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const month = months[d.getMonth()];
@@ -817,11 +834,11 @@ function formatTimestamp(ts) {
 }
 function hoursAgo(ts) {
   if (!ts) return 0;
-  return (Date.now() - (ts.toMillis ? ts.toMillis() : ts)) / 3600000;
+  return (Date.now() - tsToMillis(ts)) / 3600000;
 }
 function isToday(ts) {
   if (!ts) return false;
-  const d = new Date(ts.toMillis ? ts.toMillis() : ts);
+  const d = new Date(tsToMillis(ts));
   const now = new Date();
   return d.getDate() === now.getDate() &&
     d.getMonth() === now.getMonth() &&
@@ -829,7 +846,7 @@ function isToday(ts) {
 }
 function isSameDate(ts, dateStr) {
   if (!ts) return false;
-  const d = new Date(ts.toMillis ? ts.toMillis() : ts);
+  const d = new Date(tsToMillis(ts));
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
   const day = String(d.getDate()).padStart(2,'0');
@@ -1652,7 +1669,7 @@ window.loadMoreDone = () => {
 
 // ─── FLOOR VIEWS ──────────────────────────────────────────────────────────────
 function renderFloorToPack() {
-  const list = ordersCache.filter(o=>o.status==='accepted').slice().sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+  const list = ordersCache.filter(o=>o.status==='accepted').slice().sort((a,b)=>tsToMillis(a.createdAt)-tsToMillis(b.createdAt));
   return `
     ${getNotificationBanner()}
     <div class="kiosk-header">
@@ -1683,7 +1700,7 @@ function renderFloorToPack() {
 }
 
 function renderFloorPacked() {
-  const list = ordersCache.filter(o=>o.status==='prep').slice().sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+  const list = ordersCache.filter(o=>o.status==='prep').slice().sort((a,b)=>tsToMillis(a.createdAt)-tsToMillis(b.createdAt));
   return `
     <div class="kiosk-header">
       <div class="kiosk-title">✅ Mark as Ready</div>
@@ -1727,7 +1744,9 @@ function renderAdminDash() {
   const stuck = allOrdersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
   const active = allOrdersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
   const dispTimes = allOrdersCache.filter(o=>o.status==='dispatched'&&o.dispatchedAt&&o.createdAt)
-    .map(o=>(o.dispatchedAt.toMillis()-o.createdAt.toMillis())/3600000);
+    .map(o=>{
+      return (tsToMillis(o.dispatchedAt) - tsToMillis(o.createdAt)) / 3600000;
+    });
   const avgH = dispTimes.length ? (dispTimes.reduce((a,b)=>a+b,0)/dispTimes.length).toFixed(1) : '--';
   const sc = {
     new: allOrdersCache.filter(o=>o.status==='new').length,
@@ -1900,7 +1919,7 @@ function getOrdersInRange() {
   const to = new Date(reportToDate + 'T23:59:59');
   return allOrdersCache.filter(o => {
     if (!o.createdAt) return false;
-    const d = new Date(o.createdAt.toMillis ? o.createdAt.toMillis() : o.createdAt);
+    const d = new Date(tsToMillis(o.createdAt));
     return d >= from && d <= to;
   });
 }
@@ -1932,7 +1951,9 @@ function renderReports() {
   const totalDispatched = orders.filter(o => o.status === 'dispatched').length;
   const totalCancelled = orders.filter(o => o.status === 'cancelled').length;
   const dispTimes = orders.filter(o => o.status === 'dispatched' && o.dispatchedAt && o.createdAt)
-    .map(o => (o.dispatchedAt.toMillis() - o.createdAt.toMillis()) / 3600000);
+    .map(o => {
+      return (tsToMillis(o.dispatchedAt) - tsToMillis(o.createdAt)) / 3600000;
+    });
   const avgDispatch = dispTimes.length ? (dispTimes.reduce((a,b) => a+b, 0) / dispTimes.length).toFixed(1) : '--';
   const avgSheetsPerOrder = totalOrders > 0 ? (totalSheets / totalOrders).toFixed(1) : '--';
 
@@ -1955,7 +1976,7 @@ function renderReports() {
     const monthMap = {};
     activeOrders.forEach(o => {
       if (!o.createdAt) return;
-      const d = new Date(o.createdAt.toMillis ? o.createdAt.toMillis() : o.createdAt);
+      const d = new Date(tsToMillis(o.createdAt));
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       if (!monthMap[key]) monthMap[key] = { orders: 0, sheets: 0 };
       monthMap[key].orders++;
@@ -2796,7 +2817,7 @@ window.openNewUser = () => {
       <label class="form-label">Role</label>
       <select class="form-select" id="nu-role">
         <option value="office">Office Staff</option>
-        <option value="manager">Godown Manager</option>
+        <option value="manager">Godown Staff</option>
         <option value="floor">Godown Floor</option>
         <option value="admin">Admin</option>
       </select>
@@ -3027,7 +3048,7 @@ window.openAddTenantUser = (tenantId, tenantName) => {
       <label class="form-label">Role</label>
       <select class="form-select" id="tu-role">
         <option value="office">Office Staff</option>
-        <option value="manager">Godown Manager</option>
+        <option value="manager">Godown Staff</option>
         <option value="floor">Godown Floor</option>
         <option value="admin">Admin</option>
       </select>
