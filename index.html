@@ -372,9 +372,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.18';
+const APP_VERSION = 'v1.3.19';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.19',
+    date: '2 Jun 2026',
+    tag: 'Feature',
+    changes: [
+      'Edit user name — admin can now rename any team member from the Users tab',
+      'Edit button added to each user card (except your own account)',
+    ]
+  },
   {
     version: 'v1.3.18',
     date: '2 Jun 2026',
@@ -1539,6 +1548,39 @@ window.toggleUserStatus = async (uid, name, currentlyDisabled) => {
   }
 };
 
+window.openEditUser = (uid, currentName) => {
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">Edit User Name</div>
+    <div id="editUserErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Full name</label>
+      <input class="form-input" id="edit-user-name" value="${currentName}" placeholder="Enter name"/>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-accent" id="saveEditUserBtn" onclick="saveEditUser('${uid}')">Save Changes</button>
+    </div>`;
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.saveEditUser = async (uid) => {
+  const name = document.getElementById('edit-user-name').value.trim();
+  if (!name) { showErr('editUserErr', 'Name cannot be empty'); return; }
+  const btn = document.getElementById('saveEditUserBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await updateDoc(doc(db, 'users', uid), { name });
+    // Update local cache
+    usersCache = usersCache.map(u => u.uid === uid ? { ...u, name } : u);
+    closeForm();
+    showToast('✓ Name updated');
+    renderTab(currentTab);
+  } catch(e) {
+    showErr('editUserErr', 'Failed to save. Try again.');
+    btn.disabled = false; btn.textContent = 'Save Changes';
+  }
+};
+
 async function loadTenants() {
   const snap = await getDocs(collection(db, 'tenants'));
   tenantsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1904,11 +1946,19 @@ function renderUsers() {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
             ${getRoleBadge(u.role)}
-            ${!isMe ? `<button onclick="toggleUserStatus('${u.uid}','${u.name}',${isDisabled})"
-              style="font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid ${isDisabled?'var(--green)':'var(--red)'};
-              background:${isDisabled?'var(--green-bg)':'var(--red-bg)'};color:${isDisabled?'var(--green)':'var(--red)'};cursor:pointer;">
-              ${isDisabled?'Activate':'Deactivate'}
-            </button>` : '<span style="font-size:10px;color:var(--text3);">You</span>'}
+            ${!isMe ? `
+              <div style="display:flex;gap:6px;">
+                <button onclick="openEditUser('${u.uid}','${u.name.replace(/'/g,"\'")}')"
+                  style="font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid var(--border2);
+                  background:var(--bg3);color:var(--text2);cursor:pointer;">
+                  ✏️ Edit
+                </button>
+                <button onclick="toggleUserStatus('${u.uid}','${u.name}',${isDisabled})"
+                  style="font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid ${isDisabled?'var(--green)':'var(--red)'};
+                  background:${isDisabled?'var(--green-bg)':'var(--red-bg)'};color:${isDisabled?'var(--green)':'var(--red)'};cursor:pointer;">
+                  ${isDisabled?'Activate':'Deactivate'}
+                </button>
+              </div>` : '<span style="font-size:10px;color:var(--text3);">You</span>'}
           </div>
         </div>`}).join('')
         : `<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">No users yet</div><div class="empty-sub">Add your team members</div></div>`}
