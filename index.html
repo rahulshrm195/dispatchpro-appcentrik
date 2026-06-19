@@ -373,9 +373,20 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.20';
+const APP_VERSION = 'v1.3.21';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.21',
+    date: '13 Jun 2026',
+    tag: 'Improvement',
+    changes: [
+      'Hold is now decided at order creation — new toggle in the New Order form',
+      'Removed Place on Hold button from existing order detail (creation-time only now)',
+      'Office/Admin choose "Create Normally" or "Save on Hold" before submitting',
+      'Held orders still editable and releasable from the Hold tab as before',
+    ]
+  },
   {
     version: 'v1.3.20',
     date: '13 Jun 2026',
@@ -2393,12 +2404,6 @@ window.openDetail = (id) => {
           </div>
         </div>`).join('')}
     </div>
-    ${['office','admin'].includes(currentProfile.role) && o.status === 'new' ? `
-    <button onclick="placeOnHold('${o.id}')" style="width:100%;padding:12px;background:#fff7ed;
-      border:1.5px solid #fed7aa;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
-      font-size:13px;font-weight:500;color:#c2410c;cursor:pointer;margin-bottom:8px;">
-      ⏸️ Place on Hold
-    </button>` : ''}
     ${['office','admin'].includes(currentProfile.role) && o.status === 'hold' ? `
     <button onclick="releaseHold('${o.id}')" style="width:100%;padding:12px;background:var(--green-bg);
       border:1.5px solid var(--green);border-radius:var(--radius);font-family:'DM Sans',sans-serif;
@@ -2563,22 +2568,6 @@ window.saveEditOrder = async (id) => {
 };
 
 // ─── ORDER ACTIONS ────────────────────────────────────────────────────────────
-window.placeOnHold = async (id) => {
-  const o = allOrdersCache.find(x=>x.id===id);
-  if (!o) return;
-  try {
-    await updateDoc(doc(db,'tenants',currentTenantId,'orders',id), {
-      status: 'hold',
-      heldAt: serverTimestamp(),
-      heldBy: currentProfile.name,
-      timeline: [...(o.timeline||[]),
-        { action: 'Placed on hold', by: currentProfile.name, time: new Date() }]
-    });
-    showToast('⏸️ Order placed on hold');
-    closeDetail();
-  } catch(e) { showToast('Failed to place on hold'); }
-};
-
 window.releaseHold = async (id) => {
   const o = allOrdersCache.find(x=>x.id===id);
   if (!o) return;
@@ -2679,6 +2668,24 @@ window.dispatchOrder = async (id) => {
 };
 
 // ─── NEW ORDER ────────────────────────────────────────────────────────────────
+window.selectOrderHold = (isHold) => {
+  document.getElementById('nof-ishold').value = isHold ? 'true' : 'false';
+  const newBtn = document.getElementById('src-statusnew');
+  const holdBtn = document.getElementById('src-statushold');
+  const note = document.getElementById('nof-hold-note');
+  if (isHold) {
+    newBtn.style.border = '2px solid var(--border2)'; newBtn.style.background = 'var(--bg2)'; newBtn.style.color = 'var(--text2)';
+    holdBtn.style.border = '2px solid #c2410c'; holdBtn.style.background = '#c2410c'; holdBtn.style.color = 'white';
+    note.style.display = 'block';
+    document.getElementById('submitOrderBtn').textContent = 'Save on Hold →';
+  } else {
+    newBtn.style.border = '2px solid var(--green)'; newBtn.style.background = 'var(--green)'; newBtn.style.color = 'white';
+    holdBtn.style.border = '2px solid var(--border2)'; holdBtn.style.background = 'var(--bg2)'; holdBtn.style.color = 'var(--text2)';
+    note.style.display = 'none';
+    document.getElementById('submitOrderBtn').textContent = 'Create Order →';
+  }
+};
+
 window.openNewOrder = () => {
   newOrderItems = [{ laminate: '', qty: '' }];
   document.getElementById('formContent').innerHTML = buildNewOrderForm();
@@ -2736,6 +2743,28 @@ function buildNewOrderForm() {
         </button>
       </div>
       <input type="hidden" id="nof-source" value="WhatsApp"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Order Status</label>
+      <div style="display:flex;gap:8px;">
+        <button id="src-statusnew" onclick="selectOrderHold(false)"
+          style="flex:1;padding:11px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:14px;font-weight:500;cursor:pointer;border:2px solid var(--green);
+          background:var(--green);color:white;transition:all 0.15s;">
+          ✅ Create Normally
+        </button>
+        <button id="src-statushold" onclick="selectOrderHold(true)"
+          style="flex:1;padding:11px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:14px;font-weight:500;cursor:pointer;border:2px solid var(--border2);
+          background:var(--bg2);color:var(--text2);transition:all 0.15s;">
+          ⏸️ Save on Hold
+        </button>
+      </div>
+      <input type="hidden" id="nof-ishold" value="false"/>
+      <div id="nof-hold-note" style="display:none;font-size:12px;color:#c2410c;background:#fff7ed;
+        padding:8px 10px;border-radius:6px;margin-top:8px;">
+        This order will be hidden from Godown Staff until released from the Hold tab.
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Laminate Items</label>
@@ -3009,21 +3038,23 @@ window.submitNewOrder = async () => {
     const orderId = `DP-${fy}-${String(counter).padStart(4,'0')}`;
     const source = document.getElementById('nof-source').value;
     const notes = document.getElementById('nof-notes').value.trim();
+    const isHold = document.getElementById('nof-ishold').value === 'true';
 
     await addDoc(collection(db, 'tenants', currentTenantId, 'orders'), {
       orderId, customer,
       source, createdBy: currentProfile.name,
       items: items.map(i=>i.type==='separator' ? { type:'separator', label:i.label } : { laminate:i.laminate.trim(), qty:Number(i.qty) }),
-      status: 'new',
+      status: isHold ? 'hold' : 'new',
+      ...(isHold ? { heldAt: serverTimestamp(), heldBy: currentProfile.name } : {}),
       rollsPacked: 0, vehicleNo: '',
       notes: notes ? [notes] : [],
-      timeline: [{ action:'Order created', by:currentProfile.name, time:new Date() }],
+      timeline: [{ action: isHold ? 'Order created on hold' : 'Order created', by:currentProfile.name, time:new Date() }],
       createdAt: serverTimestamp()
     });
     // Save new laminate names silently in background
     items.forEach(i => saveLaminateIfNew(i.laminate));
     closeForm();
-    showToast(`✓ Order ${orderId} created`);
+    showToast(isHold ? `⏸️ Order ${orderId} saved on hold` : `✓ Order ${orderId} created`);
     filterStatus = 'all';
     filterDate = getTodayStr();
   } catch(e) {
