@@ -125,6 +125,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pill-ready{background:var(--green-bg);color:var(--green);}
 .pill-dispatched{background:var(--gray-bg);color:var(--gray);border:1px solid var(--border);}
 .pill-cancelled{background:var(--red-bg);color:var(--red);border:1px solid #fecaca;}
+.pill-hold{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;}
 
 /* STAT CARDS */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -372,9 +373,22 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.19';
+const APP_VERSION = 'v1.3.20';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.20',
+    date: '13 Jun 2026',
+    tag: 'Feature',
+    changes: [
+      'Hold order status — place any new order on hold, invisible to Godown Staff',
+      'Office: new Hold tab shows all held orders with Edit and Release buttons',
+      'Admin: Hold filter chip added to Orders tab, plus On hold stat card and pipeline row',
+      'Hold orders fully editable — items, quantities can be changed while held',
+      'Release from hold returns order to New status — Godown Staff can then see it',
+      'Timeline entry logged for both Hold and Release actions',
+    ]
+  },
   {
     version: 'v1.3.19',
     date: '2 Jun 2026',
@@ -847,10 +861,10 @@ function getFY() {
 }
 
 function getStatusLabel(s) {
-  return { new:'New', accepted:'Accepted', prep:'In Prep', ready:'Ready', dispatched:'Dispatched', cancelled:'Cancelled' }[s] || s;
+  return { new:'New', hold:'Hold', accepted:'Accepted', prep:'In Prep', ready:'Ready', dispatched:'Dispatched', cancelled:'Cancelled' }[s] || s;
 }
 function getStatusClass(s) {
-  return { new:'pill-new', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched', cancelled:'pill-cancelled' }[s] || '';
+  return { new:'pill-new', hold:'pill-hold', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched', cancelled:'pill-cancelled' }[s] || '';
 }
 // Safe timestamp converter — handles Firestore Timestamp, plain JSON (_seconds), and ms numbers
 function tsToMillis(ts) {
@@ -1229,6 +1243,7 @@ function setupApp() {
   } else if (role === 'office') {
     tabs = [
       { icon:'📋', label:'Orders', view: renderOfficeOrders },
+      { icon:'⏸️', label:'Hold', view: renderOfficeHold },
       { icon:'👥', label:'Customers', view: renderCustomers },
     ];
     subscribeOrders(); subscribeCustomers(); subscribeLaminates();
@@ -1324,7 +1339,7 @@ function subscribeOrders() {
   let sortDir = 'desc';
 
   if (role === 'admin') {
-    statusFilter = ['new', 'accepted', 'prep', 'ready'];
+    statusFilter = ['new', 'hold', 'accepted', 'prep', 'ready'];
     sortDir = 'desc';
   } else if (role === 'manager') {
     statusFilter = ['new', 'accepted', 'prep', 'ready', 'dispatched'];
@@ -1333,7 +1348,7 @@ function subscribeOrders() {
     statusFilter = ['accepted', 'prep'];
     sortDir = 'asc';
   } else if (role === 'office') {
-    statusFilter = ['new', 'accepted', 'prep', 'ready', 'cancelled'];
+    statusFilter = ['new', 'hold', 'accepted', 'prep', 'ready', 'cancelled'];
     sortDir = 'desc';
   }
 
@@ -1626,6 +1641,7 @@ function renderOfficeOrders() {
     // Same day dispatched carry forward to today view
     const isSameDayDispatched = o.status==='dispatched' && isViewingToday && isSameDate(o.dispatchedAt||o.createdAt, todayStr);
     return (createdOnDate || isActive || isSameDayDispatched) &&
+      o.status !== 'hold' &&
       (filterStatus==='all'||o.status===filterStatus) &&
       ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ));
   });
@@ -1659,6 +1675,24 @@ function renderOfficeOrders() {
            <div class="empty-text">No orders on ${formatDateDisplay(filterDate)}</div>
            <div class="empty-sub">${isTodaySelected?'Orders will appear here as they are created':'Try a different date'}</div>
            </div>`}
+    </div>`;
+}
+
+function renderOfficeHold() {
+  const held = ordersCache.filter(o => o.status === 'hold')
+    .sort((a,b) => tsToMillis(b.createdAt) - tsToMillis(a.createdAt));
+  return `
+    <div class="page-header">
+      <div>
+        <div class="page-title">On Hold</div>
+        <div class="page-sub">${held.length} order${held.length!==1?'s':''}</div>
+      </div>
+    </div>
+    <div class="section-pad section-gap">
+      ${held.length ? held.map(o=>orderCardHtml(o,true)).join('')
+        : `<div class="empty-state"><div class="empty-icon">⏸️</div>
+           <div class="empty-text">No orders on hold</div>
+           <div class="empty-sub">Place an order on hold from the Orders tab</div></div>`}
     </div>`;
 }
 
@@ -1848,8 +1882,10 @@ function renderAdminDash() {
   const dispatched = allOrdersCache.filter(o=>o.status==='dispatched').length;
   const stuck = allOrdersCache.filter(o=>o.status==='ready'&&hoursAgo(o.readyAt)>24).length;
   const active = allOrdersCache.filter(o=>!['dispatched','cancelled'].includes(o.status)).length;
+  const held = allOrdersCache.filter(o=>o.status==='hold').length;
   const sc = {
     new: allOrdersCache.filter(o=>o.status==='new').length,
+    hold: allOrdersCache.filter(o=>o.status==='hold').length,
     accepted: allOrdersCache.filter(o=>o.status==='accepted').length,
     prep: allOrdersCache.filter(o=>o.status==='prep').length,
     ready: allOrdersCache.filter(o=>o.status==='ready').length,
@@ -1867,6 +1903,7 @@ function renderAdminDash() {
           <div class="stat-val" style="${stuck>0?'color:var(--red);':''}">${stuck}</div>
           <div class="stat-label" style="${stuck>0?'color:var(--red);':''}">Stuck orders ⚠</div>
         </div>
+        <div class="stat-card"><div class="stat-val" style="${held>0?'color:#c2410c;':''}">${held}</div><div class="stat-label" style="${held>0?'color:#c2410c;':''}">On hold</div></div>
       </div>
       <div class="sec-label">Pipeline</div>
       <div class="detail-section" style="margin-bottom:14px;">
@@ -1882,7 +1919,7 @@ function renderAdminDash() {
 }
 
 function renderAdminOrders() {
-  const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
+  const statusFilters = ['all','new','hold','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
   const ACTIVE = ['new','accepted','prep','ready'];
   const todayStr = getTodayStr();
@@ -2356,7 +2393,25 @@ window.openDetail = (id) => {
           </div>
         </div>`).join('')}
     </div>
-    ${currentProfile.role === 'admin' && !['dispatched','cancelled'].includes(o.status) ? `
+    ${['office','admin'].includes(currentProfile.role) && o.status === 'new' ? `
+    <button onclick="placeOnHold('${o.id}')" style="width:100%;padding:12px;background:#fff7ed;
+      border:1.5px solid #fed7aa;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+      font-size:13px;font-weight:500;color:#c2410c;cursor:pointer;margin-bottom:8px;">
+      ⏸️ Place on Hold
+    </button>` : ''}
+    ${['office','admin'].includes(currentProfile.role) && o.status === 'hold' ? `
+    <button onclick="releaseHold('${o.id}')" style="width:100%;padding:12px;background:var(--green-bg);
+      border:1.5px solid var(--green);border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+      font-size:13px;font-weight:500;color:var(--green);cursor:pointer;margin-bottom:8px;">
+      ▶️ Release to Godown Staff
+    </button>` : ''}
+    ${['office','admin'].includes(currentProfile.role) && o.status === 'hold' ? `
+    <button onclick="openEditOrder('${o.id}')" style="width:100%;padding:12px;background:var(--bg2);
+      border:1.5px solid var(--border2);border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+      font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;margin-bottom:8px;">
+      ✏️ Edit Order
+    </button>` : ''}
+    ${currentProfile.role === 'admin' && !['dispatched','cancelled','hold'].includes(o.status) ? `
     <button onclick="openCancelOrder('${o.id}')" style="width:100%;padding:12px;background:var(--red-bg);
       border:1.5px solid #fecaca;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
       font-size:13px;font-weight:500;color:var(--red);cursor:pointer;margin-bottom:8px;">
@@ -2455,7 +2510,91 @@ window.openSmartReorder = (o) => {
   document.getElementById('formModal').classList.add('open');
 };
 
+window.openEditOrder = (id) => {
+  const o = allOrdersCache.find(x=>x.id===id);
+  if (!o) return;
+  newOrderItems = (o.items||[]).map(i=>i.type==='separator'
+    ? { type:'separator', label:i.label }
+    : { laminate:i.laminate, qty:String(i.qty), type:'item' });
+  if (!newOrderItems.filter(i=>i.type!=='separator').length) newOrderItems = [{ laminate:'', qty:'', type:'item' }];
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">Edit Order</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">${o.orderId||''} · ${o.customer?.name||''}</div>
+    <div id="editOrderErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Laminate Items</label>
+      <div id="itemsList">${newOrderItems.map((_,i)=>buildItemRow(i)).join('')}</div>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <button class="add-item-btn" style="flex:1;border-color:var(--purple);color:var(--purple);" onclick="addRollBreak()">📦 New Site</button>
+        <button class="add-item-btn" style="flex:2;" onclick="addItem()">+ Add laminate</button>
+      </div>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-accent" id="saveEditOrderBtn" onclick="saveEditOrder('${id}')">Save Changes</button>
+    </div>`;
+  closeDetail();
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.saveEditOrder = async (id) => {
+  syncItemsFromDOM();
+  const o = allOrdersCache.find(x=>x.id===id);
+  const validItems = newOrderItems.filter(i => i.type !== 'separator' && i.laminate.trim() && Number(i.qty) > 0);
+  if (!validItems.length) { showErr('editOrderErr', 'Add at least one valid laminate item'); return; }
+  const cleanItems = newOrderItems
+    .filter(i => i.type === 'separator' || (i.laminate.trim() && Number(i.qty) > 0))
+    .map(i => i.type === 'separator' ? i : { ...i, qty: Number(i.qty) });
+  const btn = document.getElementById('saveEditOrderBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await updateDoc(doc(db,'tenants',currentTenantId,'orders',id), {
+      items: cleanItems,
+      timeline: [...(o?.timeline||[]),
+        { action: 'Order edited while on hold', by: currentProfile.name, time: new Date() }]
+    });
+    for (const item of cleanItems) { if (item.type !== 'separator' && item.laminate) await saveLaminateIfNew(item.laminate); }
+    showToast('✅ Order updated');
+    closeForm();
+  } catch(e) {
+    showErr('editOrderErr', 'Failed to save changes. Try again.');
+    btn.disabled = false; btn.textContent = 'Save Changes';
+  }
+};
+
 // ─── ORDER ACTIONS ────────────────────────────────────────────────────────────
+window.placeOnHold = async (id) => {
+  const o = allOrdersCache.find(x=>x.id===id);
+  if (!o) return;
+  try {
+    await updateDoc(doc(db,'tenants',currentTenantId,'orders',id), {
+      status: 'hold',
+      heldAt: serverTimestamp(),
+      heldBy: currentProfile.name,
+      timeline: [...(o.timeline||[]),
+        { action: 'Placed on hold', by: currentProfile.name, time: new Date() }]
+    });
+    showToast('⏸️ Order placed on hold');
+    closeDetail();
+  } catch(e) { showToast('Failed to place on hold'); }
+};
+
+window.releaseHold = async (id) => {
+  const o = allOrdersCache.find(x=>x.id===id);
+  if (!o) return;
+  try {
+    await updateDoc(doc(db,'tenants',currentTenantId,'orders',id), {
+      status: 'new',
+      heldAt: null,
+      heldBy: null,
+      timeline: [...(o.timeline||[]),
+        { action: 'Released from hold — visible to Godown Staff', by: currentProfile.name, time: new Date() }]
+    });
+    showToast('✅ Order released to Godown Staff');
+    closeDetail();
+  } catch(e) { showToast('Failed to release hold'); }
+};
+
 window.acceptOrder = async (id) => {
   const ref = doc(db, 'tenants', currentTenantId, 'orders', id);
   await updateDoc(ref, {
