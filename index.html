@@ -126,6 +126,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pill-dispatched{background:var(--gray-bg);color:var(--gray);border:1px solid var(--border);}
 .pill-cancelled{background:var(--red-bg);color:var(--red);border:1px solid #fecaca;}
 .pill-hold{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;}
+.pill-project{background:#EDE9FE;color:#5B21B6;border:1px solid #C4B5FD;}
 
 /* STAT CARDS */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -373,9 +374,22 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.21';
+const APP_VERSION = 'v1.3.22';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.22',
+    date: '17 Jul 2026',
+    tag: 'Feature',
+    changes: [
+      'Project orders — direct company-to-customer dispatch, no godown involvement',
+      'Order Type toggle in New Order form — Regular vs Project',
+      'Project orders invisible to Godown Staff and Floor',
+      'Project orders dispatched directly by Office/Admin with optional confirmation note',
+      'Project filter chip in Admin and Office Orders tabs',
+      'Project orders shown separately in Dashboard pipeline',
+    ]
+  },
   {
     version: 'v1.3.21',
     date: '13 Jun 2026',
@@ -872,10 +886,10 @@ function getFY() {
 }
 
 function getStatusLabel(s) {
-  return { new:'New', hold:'Hold', accepted:'Accepted', prep:'In Prep', ready:'Ready', dispatched:'Dispatched', cancelled:'Cancelled' }[s] || s;
+  return { new:'New', hold:'Hold', project:'Project', accepted:'Accepted', prep:'In Prep', ready:'Ready', dispatched:'Dispatched', cancelled:'Cancelled' }[s] || s;
 }
 function getStatusClass(s) {
-  return { new:'pill-new', hold:'pill-hold', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched', cancelled:'pill-cancelled' }[s] || '';
+  return { new:'pill-new', hold:'pill-hold', project:'pill-project', accepted:'pill-accepted', prep:'pill-prep', ready:'pill-ready', dispatched:'pill-dispatched', cancelled:'pill-cancelled' }[s] || '';
 }
 // Safe timestamp converter — handles Firestore Timestamp, plain JSON (_seconds), and ms numbers
 function tsToMillis(ts) {
@@ -1350,7 +1364,7 @@ function subscribeOrders() {
   let sortDir = 'desc';
 
   if (role === 'admin') {
-    statusFilter = ['new', 'hold', 'accepted', 'prep', 'ready'];
+    statusFilter = ['new', 'hold', 'project', 'accepted', 'prep', 'ready'];
     sortDir = 'desc';
   } else if (role === 'manager') {
     statusFilter = ['new', 'accepted', 'prep', 'ready', 'dispatched'];
@@ -1359,7 +1373,7 @@ function subscribeOrders() {
     statusFilter = ['accepted', 'prep'];
     sortDir = 'asc';
   } else if (role === 'office') {
-    statusFilter = ['new', 'hold', 'accepted', 'prep', 'ready', 'cancelled'];
+    statusFilter = ['new', 'hold', 'project', 'accepted', 'prep', 'ready', 'cancelled'];
     sortDir = 'desc';
   }
 
@@ -1641,7 +1655,7 @@ function orderCardHtml(o, showAge) {
 
 // ─── OFFICE VIEWS ─────────────────────────────────────────────────────────────
 function renderOfficeOrders() {
-  const statusFilters = ['all','new','accepted','prep','ready','dispatched','cancelled'];
+  const statusFilters = ['all','new','project','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
   const ACTIVE = ['new','accepted','prep','ready'];
   const todayStr = getTodayStr();
@@ -1652,7 +1666,7 @@ function renderOfficeOrders() {
     // Same day dispatched carry forward to today view
     const isSameDayDispatched = o.status==='dispatched' && isViewingToday && isSameDate(o.dispatchedAt||o.createdAt, todayStr);
     return (createdOnDate || isActive || isSameDayDispatched) &&
-      o.status !== 'hold' &&
+      o.status !== 'hold' && (o.status !== 'project' || filterStatus === 'project') &&
       (filterStatus==='all'||o.status===filterStatus) &&
       ((o.customer?.name||'').toLowerCase().includes(searchQ)||(o.orderId||'').includes(searchQ));
   });
@@ -1897,6 +1911,7 @@ function renderAdminDash() {
   const sc = {
     new: allOrdersCache.filter(o=>o.status==='new').length,
     hold: allOrdersCache.filter(o=>o.status==='hold').length,
+    project: allOrdersCache.filter(o=>o.status==='project').length,
     accepted: allOrdersCache.filter(o=>o.status==='accepted').length,
     prep: allOrdersCache.filter(o=>o.status==='prep').length,
     ready: allOrdersCache.filter(o=>o.status==='ready').length,
@@ -1930,7 +1945,7 @@ function renderAdminDash() {
 }
 
 function renderAdminOrders() {
-  const statusFilters = ['all','new','hold','accepted','prep','ready','dispatched','cancelled'];
+  const statusFilters = ['all','new','hold','project','accepted','prep','ready','dispatched','cancelled'];
   const isTodaySelected = filterDate === getTodayStr();
   const ACTIVE = ['new','accepted','prep','ready'];
   const todayStr = getTodayStr();
@@ -2404,6 +2419,12 @@ window.openDetail = (id) => {
           </div>
         </div>`).join('')}
     </div>
+    ${['office','admin'].includes(currentProfile.role) && o.status === 'project' ? `
+    <button onclick="openProjectDispatch('${o.id}')" style="width:100%;padding:12px;background:#5B21B6;
+      border:none;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+      font-size:13px;font-weight:500;color:white;cursor:pointer;margin-bottom:8px;">
+      ✅ Mark as Dispatched
+    </button>` : ''}
     ${['office','admin'].includes(currentProfile.role) && o.status === 'hold' ? `
     <button onclick="releaseHold('${o.id}')" style="width:100%;padding:12px;background:var(--green-bg);
       border:1.5px solid var(--green);border-radius:var(--radius);font-family:'DM Sans',sans-serif;
@@ -2584,6 +2605,49 @@ window.releaseHold = async (id) => {
   } catch(e) { showToast('Failed to release hold'); }
 };
 
+window.openProjectDispatch = (id) => {
+  const o = allOrdersCache.find(x=>x.id===id);
+  if (!o) return;
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">Dispatch Project Order</div>
+    <div style="background:var(--bg2);border-radius:var(--radius);padding:12px;margin-bottom:16px;">
+      <div style="font-size:12px;color:var(--text3);font-weight:600;">${o.orderId||''}</div>
+      <div style="font-size:15px;font-weight:600;margin-top:2px;">${o.customer?.name||''}</div>
+      <div style="font-size:12px;color:#5B21B6;margin-top:4px;">🏗️ Project order — direct from company</div>
+    </div>
+    <div id="projDispatchErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Confirmation note <span style="font-weight:400;color:var(--text3);">(optional)</span></label>
+      <input class="form-input" id="projDispatchNote" placeholder="e.g. Delivered to site, confirmed by..."/>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-accent" id="projDispatchBtn" onclick="doProjectDispatch('${id}')">✅ Mark Dispatched</button>
+    </div>`;
+  closeDetail();
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.doProjectDispatch = async (id) => {
+  const o = allOrdersCache.find(x=>x.id===id);
+  const note = document.getElementById('projDispatchNote')?.value.trim();
+  const btn = document.getElementById('projDispatchBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await updateDoc(doc(db,'tenants',currentTenantId,'orders',id), {
+      status: 'dispatched',
+      dispatchedAt: serverTimestamp(),
+      timeline: [...(o?.timeline||[]),
+        { action: `Project order dispatched${note?' — '+note:''}`, by:currentProfile.name, time:new Date() }]
+    });
+    showToast('✅ Project order marked dispatched');
+    closeForm();
+  } catch(e) {
+    showErr('projDispatchErr','Failed. Try again.');
+    btn.disabled = false; btn.textContent = '✅ Mark Dispatched';
+  }
+};
+
 window.acceptOrder = async (id) => {
   const ref = doc(db, 'tenants', currentTenantId, 'orders', id);
   await updateDoc(ref, {
@@ -2668,6 +2732,28 @@ window.dispatchOrder = async (id) => {
 };
 
 // ─── NEW ORDER ────────────────────────────────────────────────────────────────
+window.selectOrderType = (type) => {
+  document.getElementById('nof-ordertype').value = type;
+  const regBtn = document.getElementById('type-regular');
+  const projBtn = document.getElementById('type-project');
+  const projNote = document.getElementById('nof-project-note');
+  const sourceGroup = document.getElementById('source-group');
+  const holdGroup = document.getElementById('hold-group');
+  if (type === 'project') {
+    regBtn.style.border = '2px solid var(--border2)'; regBtn.style.background = 'var(--bg2)'; regBtn.style.color = 'var(--text2)';
+    projBtn.style.border = '2px solid #5B21B6'; projBtn.style.background = '#5B21B6'; projBtn.style.color = 'white';
+    projNote.style.display = 'block';
+    if (sourceGroup) sourceGroup.style.display = 'none';
+    if (holdGroup) holdGroup.style.display = 'none';
+  } else {
+    regBtn.style.border = '2px solid var(--green)'; regBtn.style.background = 'var(--green)'; regBtn.style.color = 'white';
+    projBtn.style.border = '2px solid var(--border2)'; projBtn.style.background = 'var(--bg2)'; projBtn.style.color = 'var(--text2)';
+    projNote.style.display = 'none';
+    if (sourceGroup) sourceGroup.style.display = 'block';
+    if (holdGroup) holdGroup.style.display = 'block';
+  }
+};
+
 window.selectOrderHold = (isHold) => {
   document.getElementById('nof-ishold').value = isHold ? 'true' : 'false';
   const newBtn = document.getElementById('src-statusnew');
@@ -2727,6 +2813,28 @@ function buildNewOrderForm() {
       </div>
     </div>
     <div class="form-group">
+      <label class="form-label">Order Type</label>
+      <div style="display:flex;gap:8px;">
+        <button id="type-regular" onclick="selectOrderType('regular')"
+          style="flex:1;padding:11px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:14px;font-weight:500;cursor:pointer;border:2px solid var(--green);
+          background:var(--green);color:white;transition:all 0.15s;">
+          📋 Regular
+        </button>
+        <button id="type-project" onclick="selectOrderType('project')"
+          style="flex:1;padding:11px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:14px;font-weight:500;cursor:pointer;border:2px solid var(--border2);
+          background:var(--bg2);color:var(--text2);transition:all 0.15s;">
+          🏗️ Project
+        </button>
+      </div>
+      <input type="hidden" id="nof-ordertype" value="regular"/>
+      <div id="nof-project-note" style="display:none;font-size:12px;color:#5B21B6;background:#EDE9FE;
+        padding:8px 10px;border-radius:6px;margin-top:8px;">
+        Project order — dispatched directly from company. Godown staff not involved.
+      </div>
+    </div>
+    <div class="form-group" id="source-group">
       <label class="form-label">Source</label>
       <div style="display:flex;gap:8px;">
         <button id="src-whatsapp" onclick="selectSource('WhatsApp')"
@@ -2744,7 +2852,7 @@ function buildNewOrderForm() {
       </div>
       <input type="hidden" id="nof-source" value="WhatsApp"/>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="hold-group">
       <label class="form-label">Order Status</label>
       <div style="display:flex;gap:8px;">
         <button id="src-statusnew" onclick="selectOrderHold(false)"
@@ -3039,22 +3147,27 @@ window.submitNewOrder = async () => {
     const source = document.getElementById('nof-source').value;
     const notes = document.getElementById('nof-notes').value.trim();
     const isHold = document.getElementById('nof-ishold').value === 'true';
+    const orderType = document.getElementById('nof-ordertype').value || 'regular';
+    const isProject = orderType === 'project';
+    const finalStatus = isProject ? 'project' : (isHold ? 'hold' : 'new');
 
     await addDoc(collection(db, 'tenants', currentTenantId, 'orders'), {
       orderId, customer,
-      source, createdBy: currentProfile.name,
+      source: isProject ? 'Direct' : source,
+      orderType,
+      createdBy: currentProfile.name,
       items: items.map(i=>i.type==='separator' ? { type:'separator', label:i.label } : { laminate:i.laminate.trim(), qty:Number(i.qty) }),
-      status: isHold ? 'hold' : 'new',
-      ...(isHold ? { heldAt: serverTimestamp(), heldBy: currentProfile.name } : {}),
+      status: finalStatus,
+      ...(isHold && !isProject ? { heldAt: serverTimestamp(), heldBy: currentProfile.name } : {}),
       rollsPacked: 0, vehicleNo: '',
       notes: notes ? [notes] : [],
-      timeline: [{ action: isHold ? 'Order created on hold' : 'Order created', by:currentProfile.name, time:new Date() }],
+      timeline: [{ action: isProject ? 'Project order created' : (isHold ? 'Order created on hold' : 'Order created'), by:currentProfile.name, time:new Date() }],
       createdAt: serverTimestamp()
     });
     // Save new laminate names silently in background
     items.forEach(i => saveLaminateIfNew(i.laminate));
     closeForm();
-    showToast(isHold ? `⏸️ Order ${orderId} saved on hold` : `✓ Order ${orderId} created`);
+    showToast(isProject ? `🏗️ Project order ${orderId} created` : (isHold ? `⏸️ Order ${orderId} saved on hold` : `✓ Order ${orderId} created`));
     filterStatus = 'all';
     filterDate = getTodayStr();
   } catch(e) {
