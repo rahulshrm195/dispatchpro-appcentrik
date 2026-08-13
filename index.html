@@ -266,6 +266,18 @@ transition:transform 0.15s;}
 .toast.show{opacity:1;}
 .spinner-sm{width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block;vertical-align:middle;margin-right:6px;}
 .divider{height:1px;background:var(--border);margin:8px 0;}
+.note-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:8px;box-shadow:var(--shadow);}
+.note-card.urgent{border-left:3px solid var(--red);}
+.note-card.normal{border-left:3px solid var(--blue);}
+.note-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+.note-flag-urgent{font-size:10px;font-weight:600;background:var(--red-bg);color:var(--red);padding:2px 8px;border-radius:20px;border:1px solid #fecaca;}
+.note-flag-normal{font-size:10px;font-weight:600;background:var(--blue-bg);color:var(--blue);padding:2px 8px;border-radius:20px;}
+.note-text{font-size:14px;color:var(--text);line-height:1.5;word-break:break-word;}
+.note-meta{font-size:11px;color:var(--text3);margin-top:8px;display:flex;justify-content:space-between;align-items:center;}
+.note-actions{display:flex;gap:6px;}
+.note-action-btn{background:none;border:none;font-size:12px;cursor:pointer;padding:2px 6px;border-radius:6px;color:var(--text2);}
+.note-action-btn:hover{background:var(--bg3);}
+.notes-badge{background:var(--red);color:white;font-size:9px;font-weight:600;padding:1px 5px;border-radius:8px;min-width:16px;text-align:center;position:absolute;top:4px;right:22%;display:none;}
 </style>
 </head>
 <body>
@@ -374,9 +386,22 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.23';
+const APP_VERSION = 'v1.3.24';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.24',
+    date: '13 Aug 2026',
+    tag: 'Feature',
+    changes: [
+      'Notes — internal notepad for admin, office, and godown staff',
+      'Add notes with Normal or Urgent priority',
+      'Urgent notes show a red badge count on the Notes tab',
+      'Godown Staff can view notes but not add or edit',
+      'Only the creator (or admin) can edit or delete a note',
+      'Notes are real-time — updates visible instantly across all devices',
+    ]
+  },
   {
     version: 'v1.3.23',
     date: '17 Jul 2026',
@@ -884,6 +909,8 @@ let laminatesCache = [];
 let usersCache = [];
 let tenantsCache = [];
 let unsubOrders = null;
+let unsubNotes = null;
+let notesCache = [];
 let unsubCustomers = null;
 let newOrderItems = [{ laminate: '', qty: '', type: 'item' }];
 const DONE_PAGE_SIZE = 20;
@@ -1220,7 +1247,8 @@ async function doLogin() {
 async function doLogout() {
   if (unsubOrders) unsubOrders();
   if (unsubCustomers) unsubCustomers();
-  ordersCache = []; historyCache = []; allOrdersCache = []; customersCache = []; usersCache = []; tenantsCache = []; laminatesCache = [];
+  if (unsubNotes) unsubNotes();
+  ordersCache = []; historyCache = []; allOrdersCache = []; customersCache = []; usersCache = []; tenantsCache = []; laminatesCache = []; notesCache = [];
   // Clear sessionStorage caches on logout so next login gets fresh data
   sessionStorage.clear();
   await signOut(auth);
@@ -1276,23 +1304,26 @@ function setupApp() {
       { icon:'👥', label:'Customers', view: renderCustomers },
       { icon:'👤', label:'Users', view: renderUsers },
       { icon:'📈', label:'Reports', view: renderReports },
+      { icon:'📝', label:'Notes', view: renderNotes },
     ];
-    subscribeOrders(); subscribeCustomers(); loadUsers(); subscribeLaminates(); loadAdminHistory();
+    subscribeOrders(); subscribeCustomers(); loadUsers(); subscribeLaminates(); loadAdminHistory(); subscribeNotes();
   } else if (role === 'office') {
     tabs = [
       { icon:'📋', label:'Orders', view: renderOfficeOrders },
       { icon:'⏸️', label:'Hold', view: renderOfficeHold },
       { icon:'👥', label:'Customers', view: renderCustomers },
+      { icon:'📝', label:'Notes', view: renderNotes },
     ];
-    subscribeOrders(); subscribeCustomers(); subscribeLaminates();
+    subscribeOrders(); subscribeCustomers(); subscribeLaminates(); subscribeNotes();
   } else if (role === 'manager') {
     tabs = [
       { icon:'🔔', label:'New', view: renderManagerNew },
       { icon:'📦', label:'Active', view: renderManagerActive },
       { icon:'🚚', label:'Dispatch', view: renderManagerDispatch },
-      { icon:'✅', label:'Done', view: renderManagerDone }
+      { icon:'✅', label:'Done', view: renderManagerDone },
+      { icon:'📝', label:'Notes', view: renderNotes },
     ];
-    subscribeOrders();
+    subscribeOrders(); subscribeNotes();
   } else if (role === 'floor') {
     tabs = [
       { icon:'📥', label:'To Pack', view: renderFloorToPack },
@@ -1309,6 +1340,7 @@ function setupApp() {
       <span>${t.label}</span>
       ${(role==='manager'&&i<3)?`<span class="tab-badge" id="tabBadge-${i}"></span>`:''}
       ${(role==='floor'&&i<2)?`<span class="tab-badge" id="floorBadge-${i}"></span>`:''}
+      ${t.label==='Notes'?`<span class="tab-badge" id="notesBadge" style="display:none;"></span>`:''}
     </div>`).join('');
 
   currentTab = 0;
@@ -1360,6 +1392,13 @@ function refreshCurrentTab() {
       const el = document.getElementById('floorBadge-' + i);
       if (el) el.textContent = count > 0 ? count : '';
     });
+  }
+  // Notes badge — urgent count for admin/office/manager
+  const notesBadgeEl = document.getElementById('notesBadge');
+  if (notesBadgeEl) {
+    const urgentCount = notesCache.filter(n=>n.priority==='urgent').length;
+    notesBadgeEl.textContent = urgentCount > 0 ? urgentCount : '';
+    notesBadgeEl.style.display = urgentCount > 0 ? 'inline-block' : 'none';
   }
 }
 
@@ -1639,6 +1678,202 @@ async function loadTenants() {
   tenantsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   refreshCurrentTab();
 }
+
+// ─── NOTES ────────────────────────────────────────────────────────────────────
+function subscribeNotes() {
+  if (unsubNotes) unsubNotes();
+  const q = query(
+    collection(db, 'tenants', currentTenantId, 'notes'),
+    orderBy('createdAt', 'desc')
+  );
+  unsubNotes = onSnapshot(q, snap => {
+    notesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const notesBadgeEl = document.getElementById('notesBadge');
+    if (notesBadgeEl) {
+      const urgentCount = notesCache.filter(n=>n.priority==='urgent').length;
+      notesBadgeEl.textContent = urgentCount > 0 ? urgentCount : '';
+      notesBadgeEl.style.display = urgentCount > 0 ? 'inline-block' : 'none';
+    }
+    if (window._tabs && window._tabs[currentTab]?.view === renderNotes) {
+      renderTab(currentTab);
+    }
+  });
+}
+
+function renderNotes() {
+  const role = currentProfile.role;
+  const canWrite = ['admin','office'].includes(role);
+  const urgentNotes = notesCache.filter(n=>n.priority==='urgent');
+  const normalNotes = notesCache.filter(n=>n.priority==='normal');
+  return `
+    <div class="page-header">
+      <div><div class="page-title">Notes</div><div class="page-sub">${notesCache.length} note${notesCache.length!==1?'s':''}</div></div>
+      ${canWrite ? `<button class="btn-outline" style="padding:7px 12px;font-size:12px;" onclick="openNewNote()">+ Add Note</button>` : ''}
+    </div>
+    <div class="section-pad">
+      ${notesCache.length === 0 ? `
+        <div class="empty-state">
+          <div class="empty-icon">📝</div>
+          <div class="empty-text">No notes yet</div>
+          <div class="empty-sub">${canWrite ? 'Tap + Add Note to create one' : 'Notes added by admin or office will appear here'}</div>
+        </div>` : ''}
+      ${urgentNotes.length > 0 ? `
+        <div class="sec-label" style="color:var(--red);margin-bottom:8px;">🔴 Urgent</div>
+        ${urgentNotes.map(n => noteCardHtml(n, canWrite)).join('')}
+        ${normalNotes.length > 0 ? '<div style="height:8px;"></div>' : ''}
+      ` : ''}
+      ${normalNotes.length > 0 ? `
+        <div class="sec-label" style="margin-bottom:8px;">🔵 Normal</div>
+        ${normalNotes.map(n => noteCardHtml(n, canWrite)).join('')}
+      ` : ''}
+    </div>`;
+}
+
+function noteCardHtml(n, canWrite) {
+  const isOwner = n.createdByUid === currentUser.uid;
+  const canEdit = canWrite && isOwner;
+  const canDelete = canWrite && (isOwner || currentProfile.role === 'admin');
+  return `
+    <div class="note-card ${n.priority}">
+      <div class="note-header">
+        <span class="note-flag-${n.priority}">${n.priority === 'urgent' ? '🔴 Urgent' : '🔵 Normal'}</span>
+        ${canEdit || canDelete ? `
+          <div class="note-actions">
+            ${canEdit ? `<button class="note-action-btn" onclick="openEditNote('${n.id}')">✏️ Edit</button>` : ''}
+            ${canDelete ? `<button class="note-action-btn" style="color:var(--red);" onclick="deleteNote('${n.id}')">🗑</button>` : ''}
+          </div>` : ''}
+      </div>
+      <div class="note-text">${n.text||''}</div>
+      <div class="note-meta">
+        <span>${n.createdByName||''} · ${timeAgo(n.createdAt)}</span>
+        ${n.updatedAt ? `<span style="font-size:10px;">edited</span>` : ''}
+      </div>
+    </div>`;
+}
+
+window.openNewNote = () => {
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">New Note</div>
+    <div id="noteErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Priority</label>
+      <div style="display:flex;gap:8px;">
+        <button id="note-priority-normal" onclick="selectNotePriority('normal')"
+          style="flex:1;padding:10px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:13px;font-weight:500;cursor:pointer;border:2px solid var(--blue);
+          background:var(--blue);color:white;transition:all 0.15s;">🔵 Normal</button>
+        <button id="note-priority-urgent" onclick="selectNotePriority('urgent')"
+          style="flex:1;padding:10px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:13px;font-weight:500;cursor:pointer;border:2px solid var(--border2);
+          background:var(--bg2);color:var(--text2);transition:all 0.15s;">🔴 Urgent</button>
+      </div>
+      <input type="hidden" id="note-priority-val" value="normal"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <textarea class="form-input" id="note-text" rows="4" placeholder="e.g. AHG 142 — only 3 sheets left..." style="resize:vertical;min-height:100px;font-size:16px;"></textarea>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-accent" id="saveNoteBtn" onclick="saveNewNote()">Save Note</button>
+    </div>`;
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.selectNotePriority = (p) => {
+  document.getElementById('note-priority-val').value = p;
+  const nBtn = document.getElementById('note-priority-normal');
+  const uBtn = document.getElementById('note-priority-urgent');
+  if (p === 'urgent') {
+    nBtn.style.border='2px solid var(--border2)'; nBtn.style.background='var(--bg2)'; nBtn.style.color='var(--text2)';
+    uBtn.style.border='2px solid var(--red)'; uBtn.style.background='var(--red)'; uBtn.style.color='white';
+  } else {
+    nBtn.style.border='2px solid var(--blue)'; nBtn.style.background='var(--blue)'; nBtn.style.color='white';
+    uBtn.style.border='2px solid var(--border2)'; uBtn.style.background='var(--bg2)'; uBtn.style.color='var(--text2)';
+  }
+};
+
+window.saveNewNote = async () => {
+  const text = document.getElementById('note-text')?.value.trim();
+  const priority = document.getElementById('note-priority-val')?.value || 'normal';
+  if (!text) { showErr('noteErr', 'Please enter a note'); return; }
+  const btn = document.getElementById('saveNoteBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await addDoc(collection(db, 'tenants', currentTenantId, 'notes'), {
+      text, priority,
+      createdByUid: currentUser.uid,
+      createdByName: currentProfile.name,
+      createdAt: serverTimestamp()
+    });
+    showToast('✅ Note saved');
+    closeForm();
+  } catch(e) {
+    showErr('noteErr', 'Failed to save. Try again.');
+    btn.disabled = false; btn.textContent = 'Save Note';
+  }
+};
+
+window.openEditNote = (id) => {
+  const n = notesCache.find(x=>x.id===id);
+  if (!n) return;
+  document.getElementById('formContent').innerHTML = `
+    <div class="modal-title">Edit Note</div>
+    <div id="editNoteErr" class="err-msg"></div>
+    <div class="form-group">
+      <label class="form-label">Priority</label>
+      <div style="display:flex;gap:8px;">
+        <button id="note-priority-normal" onclick="selectNotePriority('normal')"
+          style="flex:1;padding:10px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s;
+          border:2px solid ${n.priority==='normal'?'var(--blue)':'var(--border2)'};
+          background:${n.priority==='normal'?'var(--blue)':'var(--bg2)'};
+          color:${n.priority==='normal'?'white':'var(--text2)'};">🔵 Normal</button>
+        <button id="note-priority-urgent" onclick="selectNotePriority('urgent')"
+          style="flex:1;padding:10px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;
+          font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s;
+          border:2px solid ${n.priority==='urgent'?'var(--red)':'var(--border2)'};
+          background:${n.priority==='urgent'?'var(--red)':'var(--bg2)'};
+          color:${n.priority==='urgent'?'white':'var(--text2)'};">🔴 Urgent</button>
+      </div>
+      <input type="hidden" id="note-priority-val" value="${n.priority||'normal'}"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <textarea class="form-input" id="note-text" rows="4" style="resize:vertical;min-height:100px;font-size:16px;">${n.text||''}</textarea>
+    </div>
+    <div class="action-row">
+      <button class="btn-outline" onclick="closeForm()">Cancel</button>
+      <button class="btn-accent" id="editNoteBtn" onclick="saveEditNote('${id}')">Save Changes</button>
+    </div>`;
+  document.getElementById('formModal').classList.add('open');
+};
+
+window.saveEditNote = async (id) => {
+  const text = document.getElementById('note-text')?.value.trim();
+  const priority = document.getElementById('note-priority-val')?.value || 'normal';
+  if (!text) { showErr('editNoteErr', 'Note cannot be empty'); return; }
+  const btn = document.getElementById('editNoteBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    await updateDoc(doc(db, 'tenants', currentTenantId, 'notes', id), {
+      text, priority, updatedAt: serverTimestamp()
+    });
+    showToast('✅ Note updated');
+    closeForm();
+  } catch(e) {
+    showErr('editNoteErr', 'Failed. Try again.');
+    btn.disabled = false; btn.textContent = 'Save Changes';
+  }
+};
+
+window.deleteNote = async (id) => {
+  if (!confirm('Delete this note?')) return;
+  try {
+    await deleteDoc(doc(db, 'tenants', currentTenantId, 'notes', id));
+    showToast('Note deleted');
+  } catch(e) { showToast('Failed to delete'); }
+};
 
 // ─── ORDER CARD HTML ──────────────────────────────────────────────────────────
 function orderCardHtml(o, showAge) {
