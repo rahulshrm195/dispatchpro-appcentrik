@@ -386,9 +386,18 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.24';
+const APP_VERSION = 'v1.3.25';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.25',
+    date: '13 Aug 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: Order notes now visible on Dispatch tab for Godown Staff',
+      'Notes now also visible on all order cards across all views',
+    ]
+  },
   {
     version: 'v1.3.24',
     date: '13 Aug 2026',
@@ -1893,6 +1902,7 @@ function orderCardHtml(o, showAge) {
         <span class="pill ${getStatusClass(o.status)}">${getStatusLabel(o.status)}</span>
       </div>
       <div class="oc-items">${itemsSummary}</div>
+      ${o.notes?.length?`<div style="margin-top:6px;padding:6px 10px;background:var(--amber-bg);border-radius:6px;font-size:12px;color:var(--amber);font-weight:500;">📝 ${o.notes.join(' · ')}</div>`:''}
       ${showAge ? getAgeHtml(o) : ''}
       <div class="oc-footer">
         <span class="oc-time">${timeAgo(o.createdAt)}</span>
@@ -2037,6 +2047,7 @@ function renderManagerDispatch() {
           <div style="margin:8px 0;padding:8px 10px;background:var(--green-bg);border-radius:8px;font-size:13px;color:var(--green);font-weight:500;">
             📦 ${o.rollsPacked||0} roll${o.rollsPacked!==1?'s':''} packed
           </div>
+          ${o.notes?.length?`<div style="margin:8px 0;padding:8px 10px;background:var(--amber-bg);border-radius:8px;font-size:13px;color:var(--amber);font-weight:500;">📝 Note: ${o.notes.join(' · ')}</div>`:''}
           ${getAgeHtml(o)}
           <div style="margin-top:10px;">
             <label class="form-label">Vehicle Number</label>
