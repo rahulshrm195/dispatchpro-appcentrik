@@ -386,9 +386,19 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.26';
+const APP_VERSION = 'v1.3.27';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.27',
+    date: '13 Aug 2026',
+    tag: 'Bug Fix',
+    changes: [
+      'Fixed: NaN showing for Total sheets and Avg sheets in Reports',
+      'Fixed: NaN in sheets count on order detail and customer history',
+      'Root cause: separator items (Site dividers) were included in sheet sum — fixed with proper filter and NaN guard across all views',
+    ]
+  },
   {
     version: 'v1.3.26',
     date: '13 Aug 2026',
@@ -1912,7 +1922,7 @@ window.deleteNote = async (id) => {
 // ─── ORDER CARD HTML ──────────────────────────────────────────────────────────
 function orderCardHtml(o, showAge) {
   const realItems = (o.items||[]).filter(i=>i.type!=='separator');
-  const totalSheets = realItems.reduce((a,i)=>a+Number(i.qty),0);
+  const totalSheets = realItems.reduce((a,i)=>a+(Number(i.qty)||0),0);
   const itemsSummary = !realItems.length ? 'No items'
     : realItems.length === 1 ? `${realItems[0].laminate} — ${realItems[0].qty} sheets`
     : `${realItems.length} items — ${totalSheets} sheets total`;
@@ -2156,7 +2166,7 @@ function renderFloorPacked() {
     </div>
     <div style="padding:14px;">
       ${list.length ? list.map(o=>{
-        const totalSheets = (o.items||[]).filter(i=>i.type!=='separator').reduce((a,i)=>a+Number(i.qty),0);
+        const totalSheets = (o.items||[]).filter(i=>i.type!=='separator').reduce((a,i)=>a+(Number(i.qty)||0),0);
         const suggested = Math.ceil(totalSheets/9);
         return `<div class="kiosk-card">
           <div class="kiosk-card-id">${o.orderId||o.id}</div>
@@ -2386,7 +2396,7 @@ function renderReports() {
   const dates = getDatesInRange();
   const activeOrders = orders.filter(o => o.status !== 'cancelled');
   const totalOrders = activeOrders.length;
-  const totalSheets = activeOrders.reduce((a,o) => a + (o.items||[]).reduce((b,i) => b + Number(i.qty), 0), 0);
+  const totalSheets = activeOrders.reduce((a,o) => a + (o.items||[]).filter(i=>i.type!=='separator').reduce((b,i) => b + (Number(i.qty)||0), 0), 0);
   const totalDispatched = orders.filter(o => o.status === 'dispatched').length;
   const totalCancelled = orders.filter(o => o.status === 'cancelled').length;
   const dispTimes = orders.filter(o => o.status === 'dispatched' && o.dispatchedAt && o.createdAt)
@@ -2657,7 +2667,7 @@ window.openDetail = (id) => {
   if (!o) return;
   const stages = ['new','accepted','prep','ready','dispatched'];
   const si = stages.indexOf(o.status);
-  const totalSheets = (o.items||[]).reduce((a,i)=>a+Number(i.qty),0);
+  const totalSheets = (o.items||[]).filter(i=>i.type!=='separator').reduce((a,i)=>a+(Number(i.qty)||0),0);
   document.getElementById('detailContent').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
       <div>
@@ -3574,7 +3584,7 @@ window.openCustomerDetail = (id) => {
   const c = customersCache.find(x=>x.id===id);
   if (!c) return;
   const cos = allOrdersCache.filter(o=>o.customer?.phone===c.phone);
-  const totalSheets = cos.reduce((a,o)=>a+(o.items||[]).reduce((b,i)=>b+Number(i.qty),0),0);
+  const totalSheets = cos.reduce((a,o)=>a+(o.items||[]).filter(i=>i.type!=='separator').reduce((b,i)=>b+(Number(i.qty)||0),0),0);
   document.getElementById('detailContent').innerHTML = `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
       <div class="cust-avatar" style="width:48px;height:48px;font-size:15px;">${initials(c.name)}</div>
