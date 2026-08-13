@@ -386,9 +386,19 @@ const app2 = initializeApp({
 const auth2 = getAuth(app2);
 
 // ─── VERSION ─────────────────────────────────────────────────────────────────
-const APP_VERSION = 'v1.3.25';
+const APP_VERSION = 'v1.3.26';
 const APP_BUILD   = '30 May 2026';
 const CHANGELOG = [
+  {
+    version: 'v1.3.26',
+    date: '13 Aug 2026',
+    tag: 'Fix',
+    changes: [
+      'Notes badge now works like a notification — shows unread count, clears when tab is opened',
+      'Badge reappears when a new note is added after last visit',
+      'Badge is no longer tied to urgent priority — any new note triggers it',
+    ]
+  },
   {
     version: 'v1.3.25',
     date: '13 Aug 2026',
@@ -1376,6 +1386,8 @@ function switchTab(i) {
   document.querySelectorAll('.tab-item').forEach((t,j)=>t.classList.toggle('active',j===i));
   renderTab(i);
   updateFAB(i);
+  // Mark notes as read when Notes tab is opened
+  if (tab.view === renderNotes) markNotesRead();
 }
 
 function renderTab(i) {
@@ -1402,13 +1414,8 @@ function refreshCurrentTab() {
       if (el) el.textContent = count > 0 ? count : '';
     });
   }
-  // Notes badge — urgent count for admin/office/manager
-  const notesBadgeEl = document.getElementById('notesBadge');
-  if (notesBadgeEl) {
-    const urgentCount = notesCache.filter(n=>n.priority==='urgent').length;
-    notesBadgeEl.textContent = urgentCount > 0 ? urgentCount : '';
-    notesBadgeEl.style.display = urgentCount > 0 ? 'inline-block' : 'none';
-  }
+  // Notes badge — unread count
+  updateNotesBadge();
 }
 
 // ─── FIRESTORE SUBSCRIPTIONS ──────────────────────────────────────────────────
@@ -1689,6 +1696,29 @@ async function loadTenants() {
 }
 
 // ─── NOTES ────────────────────────────────────────────────────────────────────
+function getLastReadNotesAt() {
+  const key = `notesLastRead_${currentTenantId}_${currentUser?.uid}`;
+  return Number(localStorage.getItem(key) || 0);
+}
+
+function markNotesRead() {
+  const key = `notesLastRead_${currentTenantId}_${currentUser?.uid}`;
+  localStorage.setItem(key, Date.now().toString());
+  updateNotesBadge();
+}
+
+function updateNotesBadge() {
+  const el = document.getElementById('notesBadge');
+  if (!el) return;
+  const lastRead = getLastReadNotesAt();
+  const unread = notesCache.filter(n => {
+    const ts = tsToMillis(n.createdAt);
+    return ts > lastRead;
+  }).length;
+  el.textContent = unread > 0 ? unread : '';
+  el.style.display = unread > 0 ? 'inline-block' : 'none';
+}
+
 function subscribeNotes() {
   if (unsubNotes) unsubNotes();
   const q = query(
@@ -1697,12 +1727,7 @@ function subscribeNotes() {
   );
   unsubNotes = onSnapshot(q, snap => {
     notesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const notesBadgeEl = document.getElementById('notesBadge');
-    if (notesBadgeEl) {
-      const urgentCount = notesCache.filter(n=>n.priority==='urgent').length;
-      notesBadgeEl.textContent = urgentCount > 0 ? urgentCount : '';
-      notesBadgeEl.style.display = urgentCount > 0 ? 'inline-block' : 'none';
-    }
+    updateNotesBadge();
     if (window._tabs && window._tabs[currentTab]?.view === renderNotes) {
       renderTab(currentTab);
     }
